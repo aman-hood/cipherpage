@@ -1,0 +1,32 @@
+version: '3.8'
+
+# Jenkins Controller with Docker Socket & Security Tooling
+# Conforms to SRS v2.2 OPS-02, OPS-03, OPS-10
+
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile.jenkins
+    image: cipherpage-jenkins:lts
+    container_name: cipherpage-jenkins
+    restart: unless-stopped
+    user: root # Needed for docker.sock mount access on local dev
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_data:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - JAVA_OPTS=-Djenkins.install.runSetupWizard=true
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    networks:
+      - cipherpage_jenkins_net
+
+volumes:
+  jenkins_data:
+
+networks:
+  cipherpage_jenkins_net:
+    driver: bridge

@@ -1,57 +1,66 @@
 # CipherPage Architecture & Monorepo Layout
 
-Welcome to **CipherPage**, the enterprise-grade EdTech platform built on the vision of **LAG: Learn, Apply, Grow**.
+Welcome to **CipherPage**, the enterprise-grade EdTech platform built on the vision of **Learn, Apply, Grow**.
 
 ## Monorepo Directory Structure
 
-The following ASCII tree outlines our monorepo structure, ensuring strict separation of concerns (Presentation, Domain, Data layers) across our FastAPI backend, Flutter mobile client, and React web application.
+The following ASCII tree outlines our monorepo structure, ensuring strict separation of concerns across our FastAPI backend, Flutter mobile client, and Next.js web application.
 
 ```text
 cipherpage/
 ├── backend/                  # Python FastAPI Application
 │   ├── app/
-│   │   ├── api/              # Presentation Layer (FastAPI Routers, Endpoints)
-│   │   │   ├── v1/
-│   │   │   └── dependencies.py
-│   │   ├── core/             # Application Core (Config, Security, Celery config)
-│   │   ├── domain/           # Domain Layer (Business Logic, Pydantic schemas, Interfaces)
-│   │   │   ├── schemas/      # Pydantic models (DTOs)
-│   │   │   └── services/     # Business logic and use cases
-│   │   ├── infrastructure/   # Data Layer (SQLAlchemy Models, Repositories, External APIs)
-│   │   │   ├── database/     # DB session, connection pooling, Alembic migrations
-│   │   │   ├── models.py     # SQLAlchemy ORM models (Database schema)
-│   │   │   └── repositories/ # Data access patterns (CRUD operations)
-│   │   ├── worker/           # Celery tasks (Background jobs, grading submissions)
-│   │   └── main.py           # Application Entrypoint
+│   │   ├── main.py           # Application Entrypoint
+│   │   ├── core/             # Application Core (Config, Security, Logging)
+│   │   ├── database/         # DB session, connection pooling
+│   │   ├── models/           # SQLAlchemy ORM models
+│   │   ├── schemas/          # Pydantic models (DTOs)
+│   │   ├── repositories/     # Data access patterns
+│   │   ├── services/         # Business logic
+│   │   ├── routers/          # FastAPI Endpoints
+│   │   ├── dependencies/     # Dependency injection
+│   │   ├── workers/          # Celery background tasks
+│   │   └── utils/            # Shared utilities
 │   ├── tests/                # Pytest suites
-│   ├── pyproject.toml        # Poetry/pip dependencies
-│   └── Dockerfile
-├── mobile/                   # Flutter Application (Impeller, BLoC/Riverpod)
+│   ├── alembic.ini           # Alembic migrations config
+│   ├── requirements.txt      # Dependencies
+│   ├── Dockerfile
+│   └── .env.example          # Environment variables template
+├── mobile/                   # Flutter Application
 │   ├── lib/
-│   │   ├── core/             # Core utilities, theme, network client, routing
-│   │   ├── data/             # Data Layer (Repositories, API Data Sources, DTOs)
-│   │   ├── domain/           # Domain Layer (Entities, Use Cases/Interactors, Repository Interfaces)
-│   │   ├── presentation/     # Presentation Layer (Widgets, Screens, BLoC/Riverpod state)
-│   │   │   ├── learn/        # Learn track UI
-│   │   │   ├── apply/        # Apply track UI (Coding interface)
-│   │   │   └── grow/         # Grow track UI (Portfolios)
+│   │   ├── core/             # Core utilities, theme, network, routing
+│   │   ├── features/         # Feature modules (auth, home, courses, etc.)
 │   │   └── main.dart
 │   ├── pubspec.yaml          # Flutter dependencies
-│   └── test/                 # Unit and Widget tests
-├── web/                      # React Web Application (TypeScript, Tailwind CSS, Vite)
+│   └── .env.example          # Environment variables template
+├── web/                      # React Web Application (Next.js, TypeScript, Tailwind CSS)
 │   ├── src/
-│   │   ├── assets/           # Static assets, icons, images
-│   │   ├── core/             # Core configuration, Axios client, context providers
-│   │   ├── data/             # Data Layer (API hooks, DTOs, React Query)
-│   │   ├── domain/           # Domain Layer (TypeScript types, Interfaces, Business logic)
-│   │   ├── presentation/     # Presentation Layer (React Components, Pages)
-│   │   │   ├── admin/        # Admin Panel UI
-│   │   │   └── student/      # Student Web App UI
-│   │   ├── App.tsx
-│   │   └── main.tsx
+│   │   ├── app/              # Next.js App Router pages
+│   │   ├── components/       # Shared React components
+│   │   ├── features/         # Feature modules (auth, courses, learning, etc.)
+│   │   ├── pages/            # Legacy or specific pages if needed
+│   │   ├── layouts/          # Shared layouts
+│   │   ├── services/         # API integration
+│   │   ├── stores/           # Zustand state management
+│   │   ├── hooks/            # Custom React hooks
+│   │   ├── types/            # TypeScript definitions
+│   │   └── utils/            # Helper functions
+│   ├── public/               # Static assets
 │   ├── package.json          # NPM dependencies
-│   ├── vite.config.ts        # Vite configuration
-│   └── tailwind.config.js    # Tailwind CSS styling configuration
+│   └── .env.example          # Environment variables template
 ├── docker-compose.yml        # Local Dev Environment Orchestration
 └── README.md                 # Project Overview (This file)
 ```
+
+## Environment Variables Configuration
+
+CipherPage relies on environment variables to configure its various services securely without hardcoding credentials into the source code. 
+
+1. Navigate to the respective directories (`backend`, `web`, `mobile`).
+2. Copy the provided `.env.example` file and rename it to `.env`.
+   ```bash
+   cp backend/.env.example backend/.env
+   cp web/.env.example web/.env
+   cp mobile/.env.example mobile/.env
+   ```
+3. Update the `.env` files with your local or production secrets. Note that `docker-compose.yml` automatically picks up `backend/.env` and `web/.env` using the `env_file` directive. Do not commit `.env` files to version control.

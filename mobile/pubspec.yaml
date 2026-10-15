@@ -1,5 +1,5 @@
 name: cipherpage_mobile
-description: CipherPage Mobile Client - LAG: Learn, Apply, Grow
+description: CipherPage Mobile Client - Learn, Apply, Grow
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -18,6 +18,8 @@ dependencies:
   shared_preferences: ^2.2.2
   # Video playback for 'Learn' phase
   video_player: ^2.8.1
+  supabase_flutter: ^2.17.2
+  flutter_dotenv: ^6.0.1
 
 dev_dependencies:
   flutter_test:
@@ -28,3 +30,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/logo.png
+    - .env

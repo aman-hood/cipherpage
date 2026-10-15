@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: 'CipherPage Dashboards'
+    orgId: 1
+    folder: 'CipherPage'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

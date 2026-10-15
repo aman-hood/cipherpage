@@ -1,0 +1,24 @@
+# Example Terraform variables for CipherPage Staging (Sanitized)
+# Copy to terraform.tfvars and populate with environment-specific values.
+
+aws_region         = "us-east-1"
+environment        = "staging"
+project_name       = "cipherpage"
+vpc_cidr           = "10.0.0.0/16"
+enable_nat_gateway = false # Set false for cost-effective staging
+
+# Database configuration
+db_instance_class  = "db.t4g.micro"
+db_name            = "cipherpagedb"
+db_username        = "cipheruser"
+db_password        = "ChangeMeToStrongPassword2026!"
+
+# Container compute limits
+backend_cpu        = 512
+backend_memory     = 1024
+frontend_cpu       = 512
+frontend_memory    = 1024
+
+# Cost control alerts (OPS-11)
+monthly_budget_usd = 15
+alert_email        = "devops-alerts@cipherpage.com"

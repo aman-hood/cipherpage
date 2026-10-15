@@ -1,0 +1,146 @@
+import { createClient } from '@/lib/supabase/client';
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+
+async function resolveAuthToken(explicitToken?: string): Promise<string> {
+  if (explicitToken) return explicitToken;
+
+  try {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      return session.access_token;
+    }
+  } catch (err) {
+    // Supabase client unavailable in this environment
+  }
+
+  if (typeof window !== 'undefined') {
+    const local = localStorage.getItem('cipherpage_auth_token');
+    if (local) return local;
+  }
+
+  return 'demo-token';
+}
+
+export interface BackendBadgeDetail {
+  id: number;
+  slug: string;
+  name: string;
+  description: string;
+  category: 'streak' | 'skills' | 'speed' | 'milestone';
+  tier: 'bronze' | 'silver' | 'gold' | 'diamond';
+  icon: string;
+  xp_reward: number;
+  unlocked: boolean;
+  unlocked_at?: string | null;
+}
+
+export interface UserStatsResponse {
+  total_xp: number;
+  level: number;
+  current_streak: number;
+  longest_streak: number;
+  total_solved: number;
+  easy_solved: number;
+  medium_solved: number;
+  hard_solved: number;
+  badges: BackendBadgeDetail[];
+}
+
+export interface BackendCertificateDetail {
+  id: string;
+  title: string;
+  issuer: string;
+  issue_date: string;
+  verification_code: string;
+  credential_url: string;
+  skills: string[];
+}
+
+/**
+ * Fetches user stats including total XP, current rank level, streak days, and problem breakdown.
+ */
+export async function fetchLiveUserStats(token?: string): Promise<UserStatsResponse> {
+  const authToken = await resolveAuthToken(token);
+  const res = await fetch(`${API_BASE_URL}/api/v1/gamification/stats`, {
+    headers: {
+      'Authorization': `Bearer ${authToken}`,
+      'Accept': 'application/json',
+    },
+  });
+
+  if (!res.ok) {
+    // Fallback attempt to un-prefixed /stats endpoint
+    const fallbackRes = await fetch(`${API_BASE_URL}/api/v1/stats`, {
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!fallbackRes.ok) {
+      const err = await fallbackRes.json().catch(() => ({ detail: 'Failed to fetch user stats' }));
+      throw new Error(err.detail || 'Failed to fetch user stats');
+    }
+    return fallbackRes.json();
+  }
+
+  return res.json();
+}
+
+/**
+ * Fetches all platform badges along with user unlock statuses.
+ */
+export async function fetchLiveBadges(token?: string): Promise<BackendBadgeDetail[]> {
+  const authToken = await resolveAuthToken(token);
+  const res = await fetch(`${API_BASE_URL}/api/v1/gamification/badges`, {
+    headers: {
+      'Authorization': `Bearer ${authToken}`,
+      'Accept': 'application/json',
+    },
+  });
+
+  if (!res.ok) {
+    const fallbackRes = await fetch(`${API_BASE_URL}/api/v1/badges`, {
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Accept': 'application/json',
+      },
+    });
+    if (!fallbackRes.ok) {
+      return [];
+    }
+    return fallbackRes.json();
+  }
+
+  return res.json();
+}
+
+/**
+ * Fetches verifiable certificates earned by completing academy courses.
+ */
+export async function fetchLiveCertificates(token?: string): Promise<BackendCertificateDetail[]> {
+  const authToken = await resolveAuthToken(token);
+  const res = await fetch(`${API_BASE_URL}/api/v1/gamification/certificates`, {
+    headers: {
+      'Authorization': `Bearer ${authToken}`,
+      'Accept': 'application/json',
+    },
+  });
+
+  if (!res.ok) {
+    const fallbackRes = await fetch(`${API_BASE_URL}/api/v1/certificates`, {
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Accept': 'application/json',
+      },
+    });
+    if (!fallbackRes.ok) {
+      return [];
+    }
+    return fallbackRes.json();
+  }
+
+  return res.json();
+}

@@ -1,0 +1,150 @@
+version: '3.8'
+
+# Production Docker Compose for CipherPage
+# Conforms to SRS v2.2 OPS-01, OPS-04, SEC-02, SEC-06
+
+services:
+  db:
+    image: pgvector/pgvector:pg15
+    container_name: cipherpage-prod-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cipheruser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cipherpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-cipherpagedb}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cipheruser} -d ${POSTGRES_DB:-cipherpagedb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2048M
+    networks:
+      - cipherpage_prod_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: cipherpage-prod-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_prod_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    networks:
+      - cipherpage_prod_net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+    image: cipherpage-backend:${IMAGE_TAG:-latest}
+    container_name: cipherpage-prod-backend
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-cipheruser}:${POSTGRES_PASSWORD:-cipherpassword}@db:5432/${POSTGRES_DB:-cipherpagedb}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - JWT_SECRET=${JWT_SECRET:-supersecretjwtkey}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1536M
+    networks:
+      - cipherpage_prod_net
+
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+    image: cipherpage-backend:${IMAGE_TAG:-latest}
+    container_name: cipherpage-prod-celery-worker
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-cipheruser}:${POSTGRES_PASSWORD:-cipherpassword}@db:5432/${POSTGRES_DB:-cipherpagedb}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - JWT_SECRET=${JWT_SECRET:-supersecretjwtkey}
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1024M
+    networks:
+      - cipherpage_prod_net
+
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      target: runner
+    image: cipherpage-web:${IMAGE_TAG:-latest}
+    container_name: cipherpage-prod-frontend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://backend:8000}
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1024M
+    networks:
+      - cipherpage_prod_net
+
+volumes:
+  postgres_prod_data:
+  redis_prod_data:
+
+networks:
+  cipherpage_prod_net:
+    driver: bridge

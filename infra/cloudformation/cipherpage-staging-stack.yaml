@@ -1,0 +1,224 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CipherPage Staging Infrastructure Stack (CloudFormation).
+  Provisions VPC, Subnets, Internet Gateway, Security Groups, S3 Asset Bucket,
+  Application Load Balancer, and ECS Cluster.
+  Conforms to SRS v2.2 OPS-06, OPS-07, OPS-11.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: staging
+    AllowedValues: [staging, production]
+    Description: Deployment environment identifier.
+
+  VpcCIDR:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: Primary CIDR block for CipherPage VPC.
+
+  PublicSubnet1CIDR:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR block for Public Subnet 1 (AZ a).
+
+  PublicSubnet2CIDR:
+    Type: String
+    Default: 10.0.2.0/24
+    Description: CIDR block for Public Subnet 2 (AZ b).
+
+Resources:
+  # ----------------------------------------------------------------------------
+  # 1. VPC & Networking (OPS-06, OPS-07)
+  # ----------------------------------------------------------------------------
+  CipherPageVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub cipherpage-${Environment}-cf-vpc
+        - Key: Project
+          Value: cipherpage
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub cipherpage-${Environment}-cf-igw
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref CipherPageVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CipherPageVPC
+      CidrBlock: !Ref PublicSubnet1CIDR
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub cipherpage-${Environment}-cf-public-1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CipherPageVPC
+      CidrBlock: !Ref PublicSubnet2CIDR
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub cipherpage-${Environment}-cf-public-2
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CipherPageVPC
+      Tags:
+        - Key: Name
+          Value: !Sub cipherpage-${Environment}-cf-public-rt
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  Subnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  Subnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # ----------------------------------------------------------------------------
+  # 2. Security Groups (OPS-07, SEC-02)
+  # ----------------------------------------------------------------------------
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTP/HTTPS access to Application Load Balancer
+      VpcId: !Ref CipherPageVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub cipherpage-${Environment}-cf-alb-sg
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound only from ALB to ECS containers
+      VpcId: !Ref CipherPageVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub cipherpage-${Environment}-cf-ecs-sg
+
+  # ----------------------------------------------------------------------------
+  # 3. Storage: S3 Bucket with Encryption & Public Access Block (OPS-05, RAG-01)
+  # ----------------------------------------------------------------------------
+  CourseAssetsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub cipherpage-${Environment}-assets-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireScratchFiles
+            Status: Enabled
+            Prefix: scratch/
+            ExpirationInDays: 14
+      Tags:
+        - Key: Name
+          Value: cipherpage-course-assets
+
+  # ----------------------------------------------------------------------------
+  # 4. Compute: ECS Cluster (OPS-05, OPS-12)
+  # ----------------------------------------------------------------------------
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub cipherpage-${Environment}-cf-cluster
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      Tags:
+        - Key: Name
+          Value: !Sub cipherpage-${Environment}-cf-cluster
+
+  # ----------------------------------------------------------------------------
+  # 5. Load Balancing: Application Load Balancer
+  # ----------------------------------------------------------------------------
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub cipherpage-${Environment}-cf-alb
+      Scheme: internet-facing
+      Type: application
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub cipherpage-${Environment}-cf-alb
+
+Outputs:
+  VpcId:
+    Description: VPC ID of created infrastructure
+    Value: !Ref CipherPageVPC
+    Export:
+      Name: !Sub ${AWS::StackName}-VPCId
+
+  ALBDNSName:
+    Description: Public DNS name of Load Balancer
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub ${AWS::StackName}-ALBDNS
+
+  S3BucketName:
+    Description: Name of S3 course assets storage bucket
+    Value: !Ref CourseAssetsBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-S3Bucket
