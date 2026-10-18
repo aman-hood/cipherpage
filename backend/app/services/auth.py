@@ -1,7 +1,6 @@
-# Auth Service
-# With Supabase Auth integration, authentication and JWT issuance are handled by Supabase.
-# User synchronization is handled automatically in the get_current_user dependency.
-# This service file is retained for future backend-specific auth logic (e.g. role escalation, banning).
+# Authentication and profile provisioning are handled by verified Firebase tokens
+# in app.dependencies.auth. This service remains available for future account
+# administration operations and intentionally does not issue credentials.
 
 class AuthService:
     pass

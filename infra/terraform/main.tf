@@ -4,7 +4,7 @@
 # ==============================================================================
 
 terraform {
-  required_version = ">= 1.5.0"
+  required_version = ">= 1.7.0"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -92,29 +92,6 @@ resource "aws_subnet" "private_2" {
   tags = {
     Name = "${var.project_name}-${var.environment}-private-2"
     Type = "Private"
-  }
-}
-
-# Database Subnets (RDS PostgreSQL)
-resource "aws_subnet" "db_1" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.20.0/24"
-  availability_zone = "${var.aws_region}a"
-
-  tags = {
-    Name = "${var.project_name}-${var.environment}-db-1"
-    Type = "Database"
-  }
-}
-
-resource "aws_subnet" "db_2" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.21.0/24"
-  availability_zone = "${var.aws_region}b"
-
-  tags = {
-    Name = "${var.project_name}-${var.environment}-db-2"
-    Type = "Database"
   }
 }
 
@@ -215,32 +192,6 @@ resource "aws_security_group" "ecs" {
   }
 }
 
-# RDS Security Group
-resource "aws_security_group" "rds" {
-  name        = "${var.project_name}-${var.environment}-rds-sg"
-  description = "Allows PostgreSQL connections exclusively from ECS tasks"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    description     = "PostgreSQL from ECS tasks only"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.ecs.id]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "${var.project_name}-${var.environment}-rds-sg"
-  }
-}
-
 # ------------------------------------------------------------------------------
 # 3. S3 Bucket for Course Materials & Lecture Notes (OPS-05, RAG-01)
 # ------------------------------------------------------------------------------
@@ -309,6 +260,21 @@ resource "aws_iam_role" "ecs_execution_role" {
 resource "aws_iam_role_policy_attachment" "ecs_execution_policy" {
   role       = aws_iam_role.ecs_execution_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# Runtime database and Firebase Admin credentials are fetched from Secrets Manager.
+resource "aws_iam_role_policy" "ecs_secrets_read" {
+  name = "${var.project_name}-${var.environment}-ecs-secrets-read"
+  role = aws_iam_role.ecs_execution_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue"]
+      Resource = [var.neon_database_url_secret_arn, var.firebase_admin_secret_arn]
+    }]
+  })
 }
 
 # Task Role (Least-privilege runtime role for application container)
@@ -466,7 +432,7 @@ resource "aws_lb_listener_rule" "api_routing" {
 # ------------------------------------------------------------------------------
 # 7. ECS Fargate Task Definitions & Services
 # ------------------------------------------------------------------------------
-# Backend Task Definition
+# Backend Task Definition (Neon and Firebase secrets are read from Secrets Manager)
 resource "aws_ecs_task_definition" "backend" {
   family                   = "${var.project_name}-${var.environment}-backend"
   network_mode             = "awsvpc"
@@ -487,8 +453,15 @@ resource "aws_ecs_task_definition" "backend" {
         protocol      = "tcp"
       }]
       environment = [
-        { name = "DATABASE_URL", value = "postgresql://${var.db_username}:${var.db_password}@${aws_db_instance.postgres.endpoint}/${var.db_name}" },
+        { name = "ENVIRONMENT", value = var.environment },
+        { name = "ALLOWED_ORIGINS", value = join(",", var.allowed_origins) },
+        { name = "FIREBASE_PROJECT_ID", value = var.firebase_project_id },
+        { name = "FIREBASE_CHECK_REVOKED", value = "true" },
         { name = "S3_BUCKET_NAME", value = aws_s3_bucket.course_assets.bucket }
+      ]
+      secrets = [
+        { name = "DATABASE_URL", valueFrom = var.neon_database_url_secret_arn },
+        { name = "FIREBASE_SERVICE_ACCOUNT_JSON", valueFrom = var.firebase_admin_secret_arn }
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -584,51 +557,40 @@ resource "aws_ecs_service" "frontend" {
   depends_on = [aws_lb_listener.http]
 }
 
-# ------------------------------------------------------------------------------
-# 8. RDS PostgreSQL 15 Instance with pgvector Support (OPS-05, RAG-02)
-# ------------------------------------------------------------------------------
-resource "aws_db_subnet_group" "rds" {
-  name       = "${var.project_name}-${var.environment}-db-subnet-group"
-  subnet_ids = [aws_subnet.db_1.id, aws_subnet.db_2.id]
-
-  tags = {
-    Name = "${var.project_name}-${var.environment}-db-subnet-group"
-  }
+# The legacy database and its network objects are detached without destruction.
+# Export and verify all data before separately authorizing their decommissioning.
+removed {
+  from = aws_db_instance.postgres
+  lifecycle { destroy = false }
 }
 
-resource "aws_db_parameter_group" "pgvector_pg" {
-  name   = "${var.project_name}-${var.environment}-pg15-params"
-  family = "postgres15"
-
-  parameter {
-    name  = "rds.extensions"
-    value = "vector"
-  }
+removed {
+  from = aws_db_subnet_group.rds
+  lifecycle { destroy = false }
 }
 
-resource "aws_db_instance" "postgres" {
-  identifier             = "${var.project_name}-${var.environment}-pg"
-  allocated_storage      = 20
-  max_allocated_storage  = 50
-  engine                 = "postgres"
-  engine_version         = "15.7"
-  instance_class         = var.db_instance_class
-  db_name                = var.db_name
-  username               = var.db_username
-  password               = var.db_password
-  parameter_group_name   = aws_db_parameter_group.pgvector_pg.name
-  db_subnet_group_name   = aws_db_subnet_group.rds.name
-  vpc_security_group_ids = [aws_security_group.rds.id]
-  skip_final_snapshot    = true
-  publicly_accessible    = false
+removed {
+  from = aws_db_parameter_group.pgvector_pg
+  lifecycle { destroy = false }
+}
 
-  tags = {
-    Name = "${var.project_name}-${var.environment}-rds"
-  }
+removed {
+  from = aws_security_group.rds
+  lifecycle { destroy = false }
+}
+
+removed {
+  from = aws_subnet.db_1
+  lifecycle { destroy = false }
+}
+
+removed {
+  from = aws_subnet.db_2
+  lifecycle { destroy = false }
 }
 
 # ------------------------------------------------------------------------------
-# 9. Cost Guardrails & AWS Budgets (OPS-11)
+# 8. Cost Guardrails & AWS Budgets (OPS-11)
 # ------------------------------------------------------------------------------
 resource "aws_budgets_budget" "monthly_spend" {
   name              = "${var.project_name}-${var.environment}-monthly-budget"

@@ -24,7 +24,7 @@ import {
   Bot
 } from 'lucide-react';
 import AIMentorDrawer from '@/components/AIMentorDrawer';
-import { createClient } from '@/lib/supabase/client';
+import { getFirebaseIdToken } from '@/lib/firebase/client';
 import { 
   ProblemInfo, 
   TestCase, 
@@ -86,18 +86,7 @@ export default function PracticeWorkspace({
     getKnownBackendChallengeId(problemNumber, problemTitle)
   );
 
-  const getActiveAuthToken = async (): Promise<string | undefined> => {
-    try {
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.access_token) return session.access_token;
-    } catch (e) {}
-    if (typeof window !== 'undefined') {
-      const local = localStorage.getItem('cipherpage_auth_token');
-      if (local) return local;
-    }
-    return undefined;
-  };
+  const getActiveAuthToken = getFirebaseIdToken;
 
   // Resolve backend challenge ID whenever problem changes
   useEffect(() => {

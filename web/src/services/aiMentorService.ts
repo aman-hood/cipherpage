@@ -1,4 +1,12 @@
+import { getFirebaseIdToken } from '@/lib/firebase/client';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+
+async function resolveAuthToken(explicitToken?: string): Promise<string> {
+  const token = explicitToken || await getFirebaseIdToken();
+  if (!token) throw new Error('Sign in is required to use the AI mentor.');
+  return token;
+}
 
 export type AIMentorMode = 'HINT' | 'DEBUG' | 'EXPLAIN' | 'COMPLEXITY';
 
@@ -29,7 +37,7 @@ export async function fetchAIMentorGuidance(
   payload: AIMentorRequestPayload,
   token?: string
 ): Promise<AIMentorResponseData> {
-  const authToken = token || 'demo-token';
+  const authToken = await resolveAuthToken(token);
   const res = await fetch(`${API_BASE_URL}/api/v1/ai/mentor`, {
     method: 'POST',
     headers: {
@@ -48,7 +56,7 @@ export async function fetchAIMentorGuidance(
 }
 
 export async function fetchAIQuota(token?: string): Promise<AIQuotaData> {
-  const authToken = token || 'demo-token';
+  const authToken = await resolveAuthToken(token);
   const res = await fetch(`${API_BASE_URL}/api/v1/ai/quota`, {
     headers: {
       'Authorization': `Bearer ${authToken}`,

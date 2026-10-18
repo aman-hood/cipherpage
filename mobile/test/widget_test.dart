@@ -1,30 +1,38 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:cipherpage_mobile/main.dart';
+import 'package:cipherpage_mobile/core/firebase_options.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const CipherPageApp());
+  setUp(() => dotenv.clean());
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+  test('Firebase options use the configured public project values', () {
+    dotenv.loadFromString(
+      envString: '''
+FIREBASE_API_KEY=public-api-key
+FIREBASE_APP_ID=mobile-app-id
+FIREBASE_MESSAGING_SENDER_ID=sender-id
+FIREBASE_PROJECT_ID=cipherpage-test
+FIREBASE_AUTH_DOMAIN=cipherpage-test.firebaseapp.com
+FIREBASE_STORAGE_BUCKET=cipherpage-test.appspot.com
+''',
+    );
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    final options = firebaseOptionsFromEnvironment();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(options, isA<FirebaseOptions>());
+    expect(options.apiKey, 'public-api-key');
+    expect(options.appId, 'mobile-app-id');
+    expect(options.messagingSenderId, 'sender-id');
+    expect(options.projectId, 'cipherpage-test');
+    expect(options.authDomain, 'cipherpage-test.firebaseapp.com');
+    expect(options.storageBucket, 'cipherpage-test.appspot.com');
+  });
+
+  test('Firebase options fail closed when required config is missing', () {
+    dotenv.loadFromString(envString: 'FIREBASE_PROJECT_ID=cipherpage-test');
+
+    expect(firebaseOptionsFromEnvironment, throwsA(isA<StateError>()));
   });
 }

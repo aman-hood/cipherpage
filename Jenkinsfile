@@ -13,17 +13,44 @@ pipeline {
         disableConcurrentBuilds()
     }
 
+    parameters {
+        booleanParam(
+            name: 'RUN_STAGING_SMOKE',
+            defaultValue: false,
+            description: 'Run Docker Compose smoke checks on the configured staging Jenkins agent.'
+        )
+    }
+
     environment {
         APP_NAME              = 'cipherpage'
         BACKEND_IMAGE         = "cipherpage-backend"
         FRONTEND_IMAGE        = "cipherpage-web"
-        GIT_COMMIT_SHORT      = sh(script: "git rev-parse --short HEAD || echo 'local'", returnStdout: true).trim()
-        RELEASE_TAG           = "${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
         DOCKER_BUILDKIT       = '1'
         COMPOSE_DOCKER_CLI_BUILD = '1'
+        // Public browser configuration, supplied as Jenkins Secret Text credentials.
+        NEXT_PUBLIC_API_URL = credentials('cipherpage-next-public-api-url')
+        NEXT_PUBLIC_FIREBASE_API_KEY = credentials('cipherpage-next-public-firebase-api-key')
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN = credentials('cipherpage-next-public-firebase-auth-domain')
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID = credentials('cipherpage-next-public-firebase-project-id')
+        NEXT_PUBLIC_FIREBASE_APP_ID = credentials('cipherpage-next-public-firebase-app-id')
+        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID = credentials('cipherpage-next-public-firebase-messaging-sender-id')
+        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET = credentials('cipherpage-next-public-firebase-storage-bucket')
     }
 
     stages {
+        stage('Initialize Release Metadata') {
+            steps {
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: "git rev-parse --short HEAD || echo 'local'",
+                        returnStdout: true
+                    ).trim()
+                    env.RELEASE_TAG = "${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
+                }
+                echo "==> Release tag: ${env.RELEASE_TAG}"
+            }
+        }
+
         // ----------------------------------------------------------------------
         // STAGE 1: Environment Audit & Secret Leak Detection (OPS-10, SEC-03)
         // ----------------------------------------------------------------------
@@ -33,7 +60,7 @@ pipeline {
                 script {
                     sh '''
                         echo "Checking for committed secret files..."
-                        if git ls-files | grep -E '^(\.env|\.env\.local|backend/\.env|web/\.env)$'; then
+                        if git ls-files | grep -E '(^|/)\.env(\.(local|development|production))?$'; then
                             echo "ERROR: Production .env detected in git tracking! Commit sanitized .env.example only."
                             exit 1
                         fi
@@ -42,7 +69,10 @@ pipeline {
 
                     sh '''
                         echo "Scanning commit diff for high-entropy secrets..."
-                        git diff --cached --unified=0 | grep -E '(AKIA[0-9A-Z]{16}|BEGIN PRIVATE KEY|service_role)' || true
+                        if git show --format= --no-ext-diff HEAD | grep -Eiq '(AKIA[0-9A-Z]{16}|BEGIN (RSA )?PRIVATE KEY|FIREBASE_PRIVATE_KEY)'; then
+                            echo "ERROR: Potential credential pattern found in staged changes."
+                            exit 1
+                        fi
                     '''
                 }
             }
@@ -69,7 +99,7 @@ pipeline {
                         dir('web') {
                             echo "==> Linting Next.js TypeScript code..."
                             sh '''
-                                npm ci --prefer-offline || npm install
+                            npm ci --prefer-offline
                                 npm run lint
                             '''
                         }
@@ -95,7 +125,7 @@ pipeline {
                     steps {
                         dir('web') {
                             echo "==> Scanning npm dependencies for critical vulnerabilities..."
-                            sh 'npm audit --audit-level=high || true'
+                            sh 'npm audit --audit-level=high'
                         }
                     }
                 }
@@ -107,18 +137,14 @@ pipeline {
         // ----------------------------------------------------------------------
         stage('Automated Tests') {
             steps {
-                echo "==> Running test suite inside isolated Docker testing environment..."
-                script {
-                    sh '''
-                        docker compose -f docker-compose.yml up -d db redis
-                        echo "Waiting for PostgreSQL and Redis readiness..."
-                        sleep 5
-                    '''
-
+                echo "==> Running isolated backend unit and regression tests..."
+                withCredentials([string(credentialsId: 'cipherpage-neon-test-url', variable: 'DATABASE_URL')]) {
                     dir('backend') {
                         sh '''
-                            docker compose -f ../docker-compose.yml exec -T backend python -m unittest discover -s tests || \
-                            python3 -m unittest discover -s tests
+                            python3 -m venv .venv
+                            .venv/bin/python -m pip install -r requirements.txt
+                            .venv/bin/python -m unittest discover -s tests -p 'test_phase4_regressions.py'
+                            .venv/bin/python -m unittest discover -s tests -p 'test_phase8_hardening.py'
                         '''
                     }
                 }
@@ -132,7 +158,7 @@ pipeline {
             steps {
                 echo "==> Building immutable production images with tag: ${RELEASE_TAG}"
                 script {
-                    sh """
+                        sh """
                         docker build \
                             --target production \
                             -t ${BACKEND_IMAGE}:${RELEASE_TAG} \
@@ -140,13 +166,27 @@ pipeline {
                             ./backend
                     """
 
-                    sh """
+                    sh '''
+                        : "${NEXT_PUBLIC_API_URL:?Missing NEXT_PUBLIC_API_URL}"
+                        : "${NEXT_PUBLIC_FIREBASE_API_KEY:?Missing NEXT_PUBLIC_FIREBASE_API_KEY}"
+                        : "${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:?Missing NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}"
+                        : "${NEXT_PUBLIC_FIREBASE_PROJECT_ID:?Missing NEXT_PUBLIC_FIREBASE_PROJECT_ID}"
+                        : "${NEXT_PUBLIC_FIREBASE_APP_ID:?Missing NEXT_PUBLIC_FIREBASE_APP_ID}"
+                        : "${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:?Missing NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}"
+                        : "${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:?Missing NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET}"
                         docker build \
                             --target runner \
-                            -t ${FRONTEND_IMAGE}:${RELEASE_TAG} \
-                            -t ${FRONTEND_IMAGE}:latest \
+                            --build-arg NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" \
+                            --build-arg NEXT_PUBLIC_FIREBASE_API_KEY="$NEXT_PUBLIC_FIREBASE_API_KEY" \
+                            --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN" \
+                            --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID="$NEXT_PUBLIC_FIREBASE_PROJECT_ID" \
+                            --build-arg NEXT_PUBLIC_FIREBASE_APP_ID="$NEXT_PUBLIC_FIREBASE_APP_ID" \
+                            --build-arg NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="$NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID" \
+                            --build-arg NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="$NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET" \
+                            -t "$FRONTEND_IMAGE:$RELEASE_TAG" \
+                            -t "$FRONTEND_IMAGE:latest" \
                             ./web
-                    """
+                    '''
                 }
             }
         }
@@ -159,15 +199,16 @@ pipeline {
                 echo "==> Scanning production images for OS and package CVEs..."
                 script {
                     sh """
-                        if command -v trivy >/dev/null 2>&1; then
-                            echo "Scanning ${BACKEND_IMAGE}:${RELEASE_TAG}..."
-                            trivy image --severity HIGH,CRITICAL --exit-code 0 ${BACKEND_IMAGE}:${RELEASE_TAG}
-                            echo "Scanning ${FRONTEND_IMAGE}:${RELEASE_TAG}..."
-                            trivy image --severity HIGH,CRITICAL --exit-code 0 ${FRONTEND_IMAGE}:${RELEASE_TAG}
-                        else
-                            echo "Trivy not installed in agent path, skipping image CVE scanning."
-                        fi
-                    """
+                        command -v trivy >/dev/null 2>&1 || {
+                            echo "ERROR: Trivy is required on the Jenkins agent."
+                            exit 1
+                        }
+                        echo "Scanning ${BACKEND_IMAGE}:${RELEASE_TAG}..."
+                        trivy image --severity HIGH,CRITICAL --exit-code 1 ${BACKEND_IMAGE}:${RELEASE_TAG}
+                        echo "Scanning ${FRONTEND_IMAGE}:${RELEASE_TAG}..."
+                        trivy image --severity HIGH,CRITICAL --exit-code 1 ${FRONTEND_IMAGE}:${RELEASE_TAG}
+                        """
+                    }
                 }
             }
         }
@@ -176,25 +217,50 @@ pipeline {
         // STAGE 7: Smoke Testing & Health Verification (AC-07)
         // ----------------------------------------------------------------------
         stage('Staging Smoke Verification') {
+            when {
+                expression { params.RUN_STAGING_SMOKE }
+            }
             steps {
                 echo "==> Deploying containerized stack and verifying health probes..."
-                script {
-                    sh """
-                        IMAGE_TAG=${RELEASE_TAG} docker compose -f docker-compose.prod.yml up -d
-                        
-                        echo "Probing backend /health endpoint..."
-                        for i in \$(seq 1 10); do
-                            if curl -sf http://localhost:8000/health; then
-                                echo "\\nBackend health probe SUCCEEDED!"
+                withCredentials([file(credentialsId: 'cipherpage-staging-backend-env-file', variable: 'BACKEND_ENV_FILE')]) {
+                    script {
+                    sh '''
+                        set -eu
+                        IMAGE_TAG="$RELEASE_TAG" docker compose -f docker-compose.prod.yml up -d --no-build
+
+                        echo "Probing backend readiness..."
+                        backend_ready=0
+                        for attempt in $(seq 1 10); do
+                            if health_response=$(curl -fsS http://localhost:8000/health) && \
+                               printf '%s' "$health_response" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"'; then
+                                backend_ready=1
                                 break
                             fi
-                            echo "Waiting for health probe... (\$i/10)"
+                            echo "Backend is not healthy yet (attempt ${attempt}/10)."
                             sleep 3
                         done
+                        if [ "$backend_ready" -ne 1 ]; then
+                            echo "ERROR: Backend did not report healthy status."
+                            exit 1
+                        fi
 
                         echo "Probing frontend readiness..."
-                        curl -s -o /dev/null -w "Frontend HTTP Status: %{http_code}\\n" http://localhost:3000 || true
-                    """
+                        frontend_ready=0
+                        for attempt in $(seq 1 10); do
+                            if curl -fsS -o /dev/null http://localhost:3000/; then
+                                frontend_ready=1
+                                break
+                            fi
+                            echo "Frontend is not ready yet (attempt ${attempt}/10)."
+                            sleep 3
+                        done
+                        if [ "$frontend_ready" -ne 1 ]; then
+                            echo "ERROR: Frontend did not become ready."
+                            exit 1
+                        fi
+                        echo "Backend and frontend readiness checks passed."
+                    '''
+                    }
                 }
             }
         }

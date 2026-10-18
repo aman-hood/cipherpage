@@ -21,7 +21,7 @@ def get_all_users(
     return [
         {
             "id": u.id,
-            "supabase_user_id": u.supabase_user_id,
+            "firebase_uid": u.firebase_uid,
             "email": u.email,
             "name": u.name,
             "role": u.role,

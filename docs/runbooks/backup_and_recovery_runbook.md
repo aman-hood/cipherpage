@@ -1,86 +1,40 @@
 # CipherPage Backup, Disaster Recovery & Data Retention Runbook
-**SRS v2.2 Compliance: NFR-04, SEC-08, SEC-09**
 
-This runbook guides operations teams on scheduled backups, point-in-time database restoration, disaster recovery drills, and regulatory data retention / purging policies for **CipherPage**.
+## 1. Backup ownership
 
----
+Neon PostgreSQL is the authoritative application database. Backup and point-in-time restore retention depend on the owner’s Neon plan and project settings. Confirm the configured retention in Neon before each production schema migration and record the available recovery point.
 
-## 1. Backup Architecture & Cadence
+Redis is a cache and task broker; do not treat it as the system of record. Course assets remain in S3. Firebase Authentication owns authentication identities; Neon stores CipherPage profiles, roles, and application data.
 
-CipherPage maintains multi-layered backups across database state, queue persistence, and media storage:
+## 2. Pre-migration backup and recovery
 
-| Component | Target Storage | Backup Type | Frequency | Retention Period |
-| :--- | :--- | :--- | :--- | :--- |
-| **PostgreSQL 15 (DB)** | Encrypted S3 / EBS | `pg_dump` Logical + WAL Archive | Hourly WAL / Daily Dump | 30 Days (Production) |
-| **Redis Cache** | EBS Volume | RDB Snapshot + AOF | Every 6 Hours | 7 Days |
-| **Course Assets (S3)** | S3 Multi-AZ | S3 Versioning & Replication | Continuous Versioning | Indefinite (Course Notes) |
-| **CloudWatch Logs** | CloudWatch Logs | Log Stream Export | Continuous | 14 Days (Staging) / 90 Days (Prod) |
+Before a production schema migration:
 
----
+1. Confirm Neon’s automated backup and point-in-time restore settings for the production project.
+2. Create a Neon restore branch or point-in-time recovery target according to the owner’s approved operations procedure.
+3. If a logical export is required, use the project owner’s approved secret-manager-backed export procedure. Do not put DATABASE_URL in shell history, logs, screenshots, command arguments, or this repository.
+4. Verify that the recovery target can be reached and that the export is readable before approving a migration.
+5. Apply migrations only to the intended target after reviewing the generated SQL and the restore point.
 
-## 2. Automated PostgreSQL Backup Procedures (NFR-04)
+Never use a destructive in-place restore as a routine rollback. Validate recovery in an isolated Neon branch first, compare schema and record counts, then follow the separately approved production recovery procedure.
 
-### Manual Snapshot (Prior to Deployments or Migrations)
-To generate an immediate database backup before applying schema changes:
-```bash
-docker exec cipherpage-db pg_dump \
-  -U cipheruser \
-  -d cipherpagedb \
-  -F c \
-  -b \
-  -v \
-  -f /var/lib/postgresql/data/cipherpage_pre_migration_$(date +%Y%m%d_%H%M%S).dump
-```
+## 3. Identity migration recovery
 
-### Complete Database Restoration
-To restore a logical dump file into PostgreSQL:
-```bash
-# 1. Terminate existing client connections
-docker exec -i cipherpage-db psql -U cipheruser -d postgres -c "
-  SELECT pg_terminate_backend(pid) 
-  FROM pg_stat_activity 
-  WHERE datname = 'cipherpagedb' AND pid <> pg_backend_pid();
-"
+The Firebase identity migration preserves the existing integer user primary keys and application foreign keys. Firebase UID mappings are recorded in the versioned identity mapping table. Existing Supabase identifiers remain in the nullable legacy column until each account mapping is verified.
 
-# 2. Re-create clean database
-docker exec -i cipherpage-db psql -U cipheruser -d postgres -c "DROP DATABASE cipherpagedb;"
-docker exec -i cipherpage-db psql -U cipheruser -d postgres -c "CREATE DATABASE cipherpagedb OWNER cipheruser;"
+The identity import script is dry-run by default and requires explicit evidence fields before applying a mapping. Do not match accounts by email alone. Keep unresolved records in the legacy state and resolve them with the account owner. Do not delete legacy identity values until the project owner approves a separate retention and cleanup plan.
 
-# 3. Restore dump archive
-docker exec -i cipherpage-db pg_restore \
-  -U cipheruser \
-  -d cipherpagedb \
-  -v \
-  /var/lib/postgresql/data/<BACKUP_FILE>.dump
-```
+Firebase accounts cannot inherit Supabase passwords through this migration. Users must authenticate through Firebase using the approved reauthentication or password-reset flow.
 
----
+## 4. Data retention and privacy deletion
 
-## 3. Data Retention & Privacy Deletion Policies (SEC-08)
+Confirm the retention requirements for submissions, AI usage records, conversations, course progress, and account deletion with the product owner before implementing scheduled deletion. Account deletion must coordinate Firebase identity deletion, token revocation, and application-data retention; the current backend does not expose a deletion endpoint.
 
-To comply with data privacy standards and reduce storage overhead:
+## 5. Disaster recovery validation drill
 
-### 1. Ephemeral Submissions & Code Outputs
-* Raw runner standard output and execution logs are archived for **90 days**.
-* Aggregated metrics (`verdict`, `score`, `language`, `execution_time_ms`) are retained indefinitely for learner transcripts.
+Run quarterly against an isolated Neon restore branch:
 
-### 2. GenAI Mentor Conversations & Usage Records
-* `ai_usage_records` are retained for **180 days** for quota tracking and cost auditing.
-* Conversation prompt strings older than **90 days** are purged via scheduled job.
-
-### 3. Student Account Deletion Requests
-When an authorized user requests account deletion (`DELETE /api/v1/auth/me`):
-* User record email and personal details are pseudonymized.
-* Auth sessions and tokens are immediately revoked.
-* Course progress and certifications are anonymized.
-
----
-
-## 4. Disaster Recovery Validation Drill (NFR-04)
-
-Run this quarterly recovery validation drill in an isolated staging environment:
-1. Spin up ephemeral PostgreSQL and Redis instances.
-2. Restore the latest daily dump.
-3. Validate vector embeddings: `SELECT count(*) FROM document_chunks WHERE embedding IS NOT NULL;`.
-4. Run backend automated verification suite: `python -m unittest discover -s tests`.
-5. Verify that all 29 unit and integration tests pass without error.
+1. Restore to a separate branch or approved non-production target.
+2. Compare important table counts, constraints, indexes, and vector data with the recorded backup baseline.
+3. Run the isolated backend regression tests: python -m unittest discover -s tests -p 'test_phase4_regressions.py' and python -m unittest discover -s tests -p 'test_phase8_hardening.py'.
+4. Record the recovery point, branch used, results, and gaps. Never point this drill at the production branch.

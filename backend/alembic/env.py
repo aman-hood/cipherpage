@@ -32,6 +32,7 @@ from app.models.enrollment import Enrollment
 from app.models.progress import LectureProgress, CourseProgress
 from app.models.gamification import Badge, UserBadge, UserStats
 from app.models.ai import AIUsageRecord, Document, DocumentChunk
+from app.models.identity_mapping import FirebaseIdentityMapping
 
 target_metadata = Base.metadata
 
@@ -53,7 +54,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = settings.DATABASE_URL
+    url = settings.sqlalchemy_database_url(settings.MIGRATION_DATABASE_URL)
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -73,7 +74,7 @@ def run_migrations_online() -> None:
 
     """
     configuration = config.get_section(config.config_ini_section, {})
-    configuration["sqlalchemy.url"] = settings.DATABASE_URL
+    configuration["sqlalchemy.url"] = settings.sqlalchemy_database_url(settings.MIGRATION_DATABASE_URL)
     connectable = engine_from_config(
         configuration,
         prefix="sqlalchemy.",

@@ -1,10 +1,12 @@
 from typing import List
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from app.database.session import get_db
 from app.dependencies.auth import get_current_user, require_teacher
 from app.models.user import User
 from app.models.ai import Document
+from app.models.enrollment import Enrollment
 from app.schemas.ai import AIMentorRequest, AIMentorResponse, AIQuotaStatus
 from app.schemas.rag import RAGQueryRequest, RAGQueryResponse, DocumentIngestRequest, DocumentDetail
 from app.services.ai_mentor import ai_mentor_service
@@ -64,10 +66,28 @@ def list_documents(
     current_user: User = Depends(get_current_user)
 ):
     """List approved documents and their ingestion status (RAG-06)."""
-    query = db.query(Document)
-    if course_id:
+    query = db.query(Document).filter(Document.status == "PROCESSED")
+    if current_user.role not in {"ADMIN", "TEACHER", "INSTRUCTOR"}:
+        enrolled_ids = [
+            row[0]
+            for row in db.query(Enrollment.course_id)
+            .filter(
+                Enrollment.user_id == current_user.id,
+                Enrollment.status.in_(["ACTIVE", "COMPLETED"]),
+            )
+            .all()
+        ]
+        if course_id is not None and course_id not in enrolled_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You must be enrolled in this course to access its documents",
+            )
+        query = query.filter(
+            or_(Document.course_id.is_(None), Document.course_id.in_(enrolled_ids))
+        )
+    if course_id is not None:
         query = query.filter(Document.course_id == course_id)
-    docs = query.all()
+    docs = query.order_by(Document.created_at.desc()).all()
     return [
         DocumentDetail(
             id=d.id,

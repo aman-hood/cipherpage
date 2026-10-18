@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'auth_service.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -14,21 +15,24 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   String? _errorMessage;
+  String? _noticeMessage;
+  final AuthService _authService = AuthService();
 
   Future<void> _signIn() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _noticeMessage = null;
     });
 
     try {
-      await Supabase.instance.client.auth.signInWithPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
+      await _authService.signInWithEmail(
+        _emailController.text,
+        _passwordController.text,
       );
-    } on AuthException catch (e) {
+    } on FirebaseAuthException catch (e) {
       setState(() {
-        _errorMessage = e.message;
+        _errorMessage = e.message ?? 'Unable to sign in.';
       });
     } catch (e) {
       setState(() {
@@ -44,15 +48,40 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _signInWithGoogle() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+      _noticeMessage = null;
+    });
     try {
-      await Supabase.instance.client.auth.signInWithOAuth(
-        OAuthProvider.google,
-        redirectTo: 'io.supabase.cipherpage://login-callback/',
-      );
+      await _authService.signInWithGoogle();
     } catch (e) {
       setState(() {
-        _errorMessage = 'Google sign-in failed.';
+        _errorMessage = e is FirebaseAuthException
+            ? e.message ?? 'Google sign-in failed.'
+            : e.toString();
       });
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _sendPasswordReset() async {
+    setState(() {
+      _errorMessage = null;
+      _noticeMessage = null;
+    });
+    if (_emailController.text.trim().isEmpty) {
+      setState(() => _errorMessage = 'Enter your email address first.');
+      return;
+    }
+    try {
+      await _authService.sendPasswordReset(_emailController.text);
+      setState(() => _noticeMessage =
+          'If an account exists, Firebase will send a password reset email.');
+    } on FirebaseAuthException catch (e) {
+      setState(() => _errorMessage =
+          e.message ?? 'Unable to send a password reset email.');
     }
   }
 
@@ -98,6 +127,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     style: const TextStyle(color: Colors.red),
                   ),
                 ),
+              if (_noticeMessage != null)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(bottom: 16),
+                  color: Colors.green.withValues(alpha: 0.1),
+                  child: Text(_noticeMessage!,
+                      style: const TextStyle(color: Colors.green)),
+                ),
               TextField(
                 controller: _emailController,
                 decoration: const InputDecoration(
@@ -106,6 +143,13 @@ class _LoginScreenState extends State<LoginScreen> {
                   prefixIcon: Icon(Icons.email),
                 ),
                 keyboardType: TextInputType.emailAddress,
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: _isLoading ? null : _sendPasswordReset,
+                  child: const Text('Forgot password?'),
+                ),
               ),
               const SizedBox(height: 16),
               TextField(

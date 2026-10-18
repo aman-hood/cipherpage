@@ -2,18 +2,18 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from app.repositories.base import CRUDBase
 from app.models.user import User
-from app.schemas.auth import UserSync
+from app.schemas.auth import UserProfile
 
-class UserRepository(CRUDBase[User, UserSync, UserSync]):
-    def get_by_supabase_id(self, db: Session, *, supabase_id: str) -> Optional[User]:
-        return db.query(User).filter(User.supabase_user_id == supabase_id).first()
+class UserRepository(CRUDBase[User, UserProfile, UserProfile]):
+    def get_by_firebase_uid(self, db: Session, *, firebase_uid: str) -> Optional[User]:
+        return db.query(User).filter(User.firebase_uid == firebase_uid).first()
 
     def get_by_email(self, db: Session, *, email: str) -> Optional[User]:
         return db.query(User).filter(User.email == email).first()
 
-    def create_with_supabase(self, db: Session, *, supabase_id: str, email: str, name: str) -> User:
+    def create_with_firebase(self, db: Session, *, firebase_uid: str, email: str, name: str) -> User:
         db_obj = User(
-            supabase_user_id=supabase_id,
+            firebase_uid=firebase_uid,
             email=email,
             name=name,
             role="STUDENT"

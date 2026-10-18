@@ -7,11 +7,12 @@ project_name       = "cipherpage"
 vpc_cidr           = "10.0.0.0/16"
 enable_nat_gateway = false # Set false for cost-effective staging
 
-# Database configuration
-db_instance_class  = "db.t4g.micro"
-db_name            = "cipherpagedb"
-db_username        = "cipheruser"
-db_password        = "ChangeMeToStrongPassword2026!"
+# Owner-provided secret references. Fill these with real resource ARNs before planning.
+neon_database_url_secret_arn = ""
+firebase_admin_secret_arn    = ""
+firebase_project_id          = ""
+# Replace with the owner-approved HTTPS web origin(s) before planning.
+allowed_origins              = []
 
 # Container compute limits
 backend_cpu        = 512

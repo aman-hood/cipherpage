@@ -26,6 +26,12 @@ class EnrollmentService:
                 course_slug=course.slug
             )
 
+        if course.price > 0:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Paid courses must be purchased through the payment flow",
+            )
+
         new_enrollment = Enrollment(
             user_id=user.id,
             course_id=course_id,

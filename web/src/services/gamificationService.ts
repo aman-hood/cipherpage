@@ -1,26 +1,12 @@
-import { createClient } from '@/lib/supabase/client';
+import { getFirebaseIdToken } from '@/lib/firebase/client';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
 async function resolveAuthToken(explicitToken?: string): Promise<string> {
   if (explicitToken) return explicitToken;
-
-  try {
-    const supabase = createClient();
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.access_token) {
-      return session.access_token;
-    }
-  } catch (err) {
-    // Supabase client unavailable in this environment
-  }
-
-  if (typeof window !== 'undefined') {
-    const local = localStorage.getItem('cipherpage_auth_token');
-    if (local) return local;
-  }
-
-  return 'demo-token';
+  const token = await getFirebaseIdToken();
+  if (!token) throw new Error('Sign in is required to load account data.');
+  return token;
 }
 
 export interface BackendBadgeDetail {

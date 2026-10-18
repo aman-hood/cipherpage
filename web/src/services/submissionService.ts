@@ -1,10 +1,11 @@
+import { getFirebaseIdToken } from '@/lib/firebase/client';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
-function getStoredToken(): string {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('cipherpage_auth_token') || 'demo-token';
-  }
-  return 'demo-token';
+async function resolveAuthToken(explicitToken?: string): Promise<string> {
+  const token = explicitToken || await getFirebaseIdToken();
+  if (!token) throw new Error('Sign in is required to submit code.');
+  return token;
 }
 
 export interface SubmissionPayload {
@@ -49,7 +50,7 @@ export async function submitCode(
   payload: { challenge_id: number; code: string; language: string },
   token?: string
 ): Promise<EvaluationResult> {
-  const authToken = token || getStoredToken();
+  const authToken = await resolveAuthToken(token);
   const res = await fetch(`${API_BASE_URL}/api/v1/submissions/`, {
     method: 'POST',
     headers: {
@@ -68,7 +69,7 @@ export async function submitCode(
 }
 
 export async function getSubmissionStatus(submissionId: string, token?: string): Promise<SubmissionStatus> {
-  const authToken = token || getStoredToken();
+  const authToken = await resolveAuthToken(token);
   const res = await fetch(`${API_BASE_URL}/api/v1/submissions/${submissionId}/status`, {
     headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {},
   });
@@ -79,7 +80,7 @@ export async function getSubmissionStatus(submissionId: string, token?: string):
 }
 
 export async function getSubmissionResult(submissionId: string, token?: string): Promise<EvaluationResult> {
-  const authToken = token || getStoredToken();
+  const authToken = await resolveAuthToken(token);
   const res = await fetch(`${API_BASE_URL}/api/v1/submissions/${submissionId}`, {
     headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {},
   });
@@ -93,7 +94,7 @@ export async function getSubmissionHistory(
   challengeId: number,
   token?: string
 ): Promise<EvaluationResult[]> {
-  const authToken = token || getStoredToken();
+  const authToken = await resolveAuthToken(token);
   const res = await fetch(`${API_BASE_URL}/api/v1/submissions/history/${challengeId}`, {
     headers: {
       'Authorization': `Bearer ${authToken}`,

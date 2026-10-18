@@ -1,18 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../auth/auth_service.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
   Future<void> _signOut() async {
-    await Supabase.instance.client.auth.signOut();
+    await AuthService().signOut();
   }
 
   @override
   Widget build(BuildContext context) {
-    final user = Supabase.instance.client.auth.currentUser;
+    final user = FirebaseAuth.instance.currentUser;
     final email = user?.email ?? 'Unknown User';
-    final name = user?.userMetadata?['name'] ?? 'Student';
+    final name = user?.displayName ?? 'Student';
 
     return Scaffold(
       appBar: AppBar(
@@ -51,7 +52,7 @@ class HomeScreen extends StatelessWidget {
             ),
             const SizedBox(height: 48),
             const Text(
-              'You have successfully authenticated\nwith Supabase and synced with FastAPI.',
+              'You are signed in with Firebase Authentication.\nCipherPage data is served by the FastAPI backend.',
               textAlign: TextAlign.center,
             ),
           ],

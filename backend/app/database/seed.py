@@ -20,7 +20,6 @@ def seed_database():
         demo_user = db.query(User).filter(User.email == "demo@cipherpage.com").first()
         if not demo_user:
             demo_user = User(
-                supabase_user_id="demo-user-uuid-12345",
                 name="Aman (Demo)",
                 email="demo@cipherpage.com",
                 role="ADMIN",

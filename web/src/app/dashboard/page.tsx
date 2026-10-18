@@ -18,6 +18,7 @@ import {
   Award
 } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
+import { useAuth } from '@/features/auth/hooks/useAuth';
 import Link from 'next/link';
 import VideoPlayer from '@/components/VideoPlayer';
 import PracticeWorkspace from '@/components/PracticeWorkspace';
@@ -194,7 +195,8 @@ function Calendar({
 }
 
 export default function Dashboard() {
-  const [userName, setUserName] = useState('');
+  const { profile, user } = useAuth();
+  const userName = (profile?.name || user?.displayName || user?.email?.split('@')[0] || '').split(' ')[0];
   // Default to August 1, 2026 so user immediately sees their playlist's POTD video on load
   const [calendarDate, setCalendarDate] = useState(new Date(2026, 7, 1));
   const [selectedDay, setSelectedDay] = useState(1);
@@ -202,17 +204,6 @@ export default function Dashboard() {
   const [showPracticeWorkspace, setShowPracticeWorkspace] = useState(false);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('cipherpage_user');
-    if (savedUser) {
-      try {
-        const user = JSON.parse(savedUser);
-        if (user.name) {
-          const firstName = user.name.split(' ')[0];
-          setUserName(firstName);
-        }
-      } catch (e) {}
-    }
-
     try {
       const savedSolved = localStorage.getItem('cipherpage_solved_potds');
       if (savedSolved) {

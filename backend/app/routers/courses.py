@@ -4,7 +4,7 @@ from typing import List
 from app.schemas.course import CourseDetail
 from app.database.session import get_db
 from app.services.course import course_service
-from app.dependencies.auth import get_current_user
+from app.dependencies.auth import ensure_course_access, get_current_user
 from app.models.user import User
 
 router = APIRouter(prefix="/courses", tags=["Courses"])
@@ -39,6 +39,11 @@ def update_course(
     return course_service.update_course(db, course_id=course_id, course_in=course_in)
 
 @router.get("/{course_id}/modules")
-def get_course_modules(course_id: int, db: Session = Depends(get_db)):
+def get_course_modules(
+    course_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     course = course_service.get_course_by_id(db, course_id=course_id)
+    ensure_course_access(db, current_user, course)
     return course.modules

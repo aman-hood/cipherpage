@@ -64,3 +64,12 @@ CipherPage relies on environment variables to configure its various services sec
    cp mobile/.env.example mobile/.env
    ```
 3. Update the `.env` files with your local or production secrets. Note that `docker-compose.yml` automatically picks up `backend/.env` and `web/.env` using the `env_file` directive. Do not commit `.env` files to version control.
+
+## Runtime services
+
+- FastAPI uses SQLAlchemy with PostgreSQL on Neon for application data. Local and deployment configuration must provide the project owner's DATABASE_URL through backend/.env or a secret manager. TLS is required for remote PostgreSQL connections.
+- Firebase Authentication manages user identities. Web and mobile clients use public Firebase project configuration; FastAPI verifies bearer ID tokens with Firebase Admin. Firebase Admin credentials belong only in the backend environment or a trusted runtime identity.
+- Local Compose starts Redis, FastAPI, the worker, and Next.js; it does not create a PostgreSQL service. Set DATABASE_URL before starting the backend.
+- Production web images need NEXT_PUBLIC_API_URL and the public NEXT_PUBLIC_FIREBASE_* values at build time. The production Compose file intentionally fails configuration when required Firebase web values are missing.
+
+See docs/migrations/neon_firebase_migration.md for identity mapping, owner-provided variables, migration order, and remaining deployment prerequisites.

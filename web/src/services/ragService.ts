@@ -1,4 +1,12 @@
+import { getFirebaseIdToken } from '@/lib/firebase/client';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+
+async function resolveAuthToken(explicitToken?: string): Promise<string> {
+  const token = explicitToken || await getFirebaseIdToken();
+  if (!token) throw new Error('Sign in is required to access course materials.');
+  return token;
+}
 
 export interface Citation {
   document_id: number;
@@ -34,7 +42,7 @@ export async function askLearningAssistant(
   payload: RAGQueryPayload,
   token?: string
 ): Promise<RAGQueryResponse> {
-  const authToken = token || 'demo-token';
+  const authToken = await resolveAuthToken(token);
   const res = await fetch(`${API_BASE_URL}/api/v1/ai/learning-assistant`, {
     method: 'POST',
     headers: {
@@ -56,7 +64,7 @@ export async function fetchCourseDocuments(
   courseId?: number,
   token?: string
 ): Promise<DocumentSummary[]> {
-  const authToken = token || 'demo-token';
+  const authToken = await resolveAuthToken(token);
   const url = courseId 
     ? `${API_BASE_URL}/api/v1/ai/documents?course_id=${courseId}`
     : `${API_BASE_URL}/api/v1/ai/documents`;

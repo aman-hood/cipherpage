@@ -28,11 +28,6 @@ output "frontend_service_name" {
   value       = aws_ecs_service.frontend.name
 }
 
-output "rds_endpoint" {
-  description = "Connection endpoint for RDS PostgreSQL database"
-  value       = aws_db_instance.postgres.endpoint
-}
-
 output "s3_course_assets_bucket" {
   description = "S3 Bucket name for course PDFs, videos, and materials"
   value       = aws_s3_bucket.course_assets.bucket

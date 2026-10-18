@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'auth_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -14,26 +15,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   String? _errorMessage;
+  String? _noticeMessage;
+  final AuthService _authService = AuthService();
 
   Future<void> _signUp() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _noticeMessage = null;
     });
 
     try {
-      await Supabase.instance.client.auth.signUp(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-        data: {'name': _nameController.text.trim()},
+      await _authService.registerWithEmail(
+        name: _nameController.text,
+        email: _emailController.text,
+        password: _passwordController.text,
       );
-      // Success will trigger AuthStateChange and take us to Home
-      if (mounted) {
-        Navigator.pop(context); // Go back to login/home
-      }
-    } on AuthException catch (e) {
+      setState(() => _noticeMessage =
+          'Account created. Verify your email address, then sign in.');
+    } on FirebaseAuthException catch (e) {
       setState(() {
-        _errorMessage = e.message;
+        _errorMessage = e.message ?? 'Unable to create your account.';
       });
     } catch (e) {
       setState(() {
@@ -75,6 +77,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     _errorMessage!,
                     style: const TextStyle(color: Colors.red),
                   ),
+                ),
+              if (_noticeMessage != null)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(bottom: 16),
+                  color: Colors.green.withValues(alpha: 0.1),
+                  child: Text(_noticeMessage!,
+                      style: const TextStyle(color: Colors.green)),
                 ),
               TextField(
                 controller: _nameController,
@@ -118,6 +128,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       )
                     : const Text('Create account'),
               ),
+              if (_noticeMessage != null)
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Return to sign in'),
+                ),
             ],
           ),
         ),

@@ -3,34 +3,77 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import {
+  GoogleAuthProvider,
+  reload,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+} from 'firebase/auth'
+import { ensureFirebaseSessionPersistence, getFirebaseAuth } from '@/lib/firebase/client'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError(null)
     
-    // Bypassing Supabase fetch for now since the URL is invalid
-    // Generate a generic name from the email (e.g. Aman Kumar from aman.kumar@...)
-    const name = email.split('@')[0].split(/[._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ')
-    localStorage.setItem('cipherpage_user', JSON.stringify({
-      name: name || 'User',
-      email
-    }))
-    
-    setTimeout(() => {
+    try {
+      const auth = getFirebaseAuth()
+      await ensureFirebaseSessionPersistence(auth)
+      const credential = await signInWithEmailAndPassword(auth, email.trim(), password)
+      await reload(credential.user)
+      if (!credential.user.emailVerified) {
+        await signOut(auth)
+        throw new Error('Verify your email address before signing in.')
+      }
+      await credential.user.getIdToken(true)
       router.push('/dashboard')
-    }, 500)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to sign in. Check your credentials and try again.')
+    } finally {
+      setLoading(false)
+    }
   }
 
+  const handleGoogleLogin = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const auth = getFirebaseAuth()
+      await ensureFirebaseSessionPersistence(auth)
+      const credential = await signInWithPopup(auth, new GoogleAuthProvider())
+      await credential.user.getIdToken(true)
+      router.push('/dashboard')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Google sign-in failed.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handlePasswordReset = async () => {
+    setError(null)
+    setNotice(null)
+    if (!email.trim()) {
+      setError('Enter your email address first.')
+      return
+    }
+    try {
+      await sendPasswordResetEmail(getFirebaseAuth(), email.trim())
+      setNotice('If an account exists for that address, Firebase will send a password reset email.')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to send a password reset email.')
+    }
+  }
 
 
   return (
@@ -51,6 +94,7 @@ export default function LoginPage() {
               {error}
             </div>
           )}
+          {notice && <div className="bg-green-100 text-green-700 p-3 rounded text-sm">{notice}</div>}
           <div className="space-y-4">
             <div>
               <label htmlFor="email" className="sr-only">Email address</label>
@@ -80,6 +124,12 @@ export default function LoginPage() {
             </div>
           </div>
 
+          <div className="text-right">
+            <button type="button" onClick={handlePasswordReset} className="text-sm text-blue-600 hover:text-blue-500">
+              Forgot password?
+            </button>
+          </div>
+
           <div>
             <button
               type="submit"
@@ -91,10 +141,19 @@ export default function LoginPage() {
           </div>
         </form>
 
+        <button
+          type="button"
+          disabled={loading}
+          onClick={handleGoogleLogin}
+          className="w-full flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-700 rounded-md text-sm font-medium text-gray-900 dark:text-white disabled:opacity-50"
+        >
+          Continue with Google
+        </button>
+
 
 
         <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
-          Don't have an account?{' '}
+          Don&apos;t have an account?{' '}
           <Link href="/register" className="font-medium text-blue-600 hover:text-blue-500">
             Sign up
           </Link>

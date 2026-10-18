@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/client';
+import { getFirebaseIdToken } from '@/lib/firebase/client';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
@@ -49,14 +49,7 @@ export async function fetchBackendChallenges(token?: string, forceRefresh = fals
   fetchPromise = (async () => {
     try {
       const headers: Record<string, string> = { 'Accept': 'application/json' };
-      let authToken = token;
-      if (!authToken) {
-        try {
-          const supabase = createClient();
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session?.access_token) authToken = session.access_token;
-        } catch (e) {}
-      }
+      const authToken = token || await getFirebaseIdToken();
       if (authToken) {
         headers['Authorization'] = `Bearer ${authToken}`;
       }

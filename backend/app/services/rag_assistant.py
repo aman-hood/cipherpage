@@ -73,14 +73,20 @@ class RAGAssistantService:
                 db.commit()
             except Exception:
                 db.rollback()
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Ingestion failed: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Document ingestion failed",
+            ) from e
 
     @staticmethod
     def answer_question(db: Session, user: User, req: RAGQueryRequest) -> RAGQueryResponse:
         # 1. Permission-aware scope checking (RAG-03)
         enrolled_ids: Optional[List[int]] = None
-        if user.role not in ["ADMIN", "TEACHER"]:
-            enrolled = db.query(Enrollment.course_id).filter(Enrollment.user_id == user.id).all()
+        if user.role not in ["ADMIN", "TEACHER", "INSTRUCTOR"]:
+            enrolled = db.query(Enrollment.course_id).filter(
+                Enrollment.user_id == user.id,
+                Enrollment.status.in_(["ACTIVE", "COMPLETED"]),
+            ).all()
             enrolled_ids = [e[0] for e in enrolled]
             if req.course_id and req.course_id not in enrolled_ids:
                 raise HTTPException(

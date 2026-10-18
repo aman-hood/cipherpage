@@ -33,29 +33,29 @@ variable "enable_nat_gateway" {
   default     = false
 }
 
-variable "db_instance_class" {
-  description = "RDS PostgreSQL compute instance tier"
+variable "neon_database_url_secret_arn" {
+  description = "Secrets Manager ARN containing the owner-supplied Neon DATABASE_URL"
   type        = string
-  default     = "db.t4g.micro"
 }
 
-variable "db_name" {
-  description = "Database name for PostgreSQL"
+variable "firebase_admin_secret_arn" {
+  description = "Secrets Manager ARN containing the Firebase Admin service-account JSON"
   type        = string
-  default     = "cipherpagedb"
 }
 
-variable "db_username" {
-  description = "Master database username"
+variable "firebase_project_id" {
+  description = "Firebase project ID expected in verified Firebase ID tokens"
   type        = string
-  default     = "cipheruser"
 }
 
-variable "db_password" {
-  description = "Master database password"
-  type        = string
-  sensitive   = true
-  default     = "CipherPass2026!"
+variable "allowed_origins" {
+  description = "Exact HTTPS web origins allowed to call the API in this remote environment"
+  type        = list(string)
+
+  validation {
+    condition     = length(var.allowed_origins) > 0 && alltrue([for origin in var.allowed_origins : can(regex("^https://[^/]+$", origin))])
+    error_message = "Set at least one exact HTTPS frontend origin; wildcard and non-HTTPS origins are not allowed."
+  }
 }
 
 variable "backend_cpu" {

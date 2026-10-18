@@ -26,7 +26,7 @@ CipherPage utilizes a multi-stage Docker strategy and a declarative Jenkins CI/C
 | 1. Secret & Leak Detection (git diff & entropy check)     |
 | 2. Static Code Analysis (Python compileall, Next.js lint) |
 | 3. Type Checking & Dependency Audit (tsc, npm audit)      |
-| 4. Ephemeral Test Execution (All 21 backend unit tests)   |
+| 4. Isolated Backend Regression Tests                     |
 | 5. Multi-Stage Docker Builds (Target: production/runner)  |
 | 6. Container Vulnerability Scan (Trivy CVE inspection)    |
 | 7. Staging Smoke Test & Health Check (/health probe)      |
@@ -46,7 +46,9 @@ CipherPage utilizes a multi-stage Docker strategy and a declarative Jenkins CI/C
 ### Development Environment (With Live Reloading)
 To run the full stack locally with hot reloading enabled for both FastAPI and Next.js:
 ```bash
-# Start all services (db, redis, backend, celery, frontend)
+# Set backend/.env and web/.env from their sanitized examples first.
+# DATABASE_URL must contain the owner-provided Neon PostgreSQL URL.
+# Start the application services (Redis, backend, worker, frontend).
 docker compose up -d
 
 # View real-time aggregated logs
@@ -125,7 +127,14 @@ Configure least-privilege credentials in **Jenkins > Manage Jenkins > Credential
 | :--- | :--- | :--- |
 | `DOCKER_REGISTRY_CREDENTIALS` | Username with password | Registry robot account for pushing release images |
 | `GIT_CREDENTIALS` | SSH Username with private key | Deploy key for cloning protected submodules |
-| `SUPABASE_PROD_SECRETS` | Secret text | Supabase JWT Secret and URL for production validation |
+| cipherpage-neon-test-url | Secret text | Dedicated non-production Neon URL used only to satisfy backend test configuration; tests must not connect to it |
+| cipherpage-staging-backend-env-file | Secret file | Backend-only staging environment file used by the local Compose smoke stage; contains the staging Neon URL and Firebase Admin configuration |
+| FIREBASE_PROJECT_ID | Jenkins environment value | Firebase project identifier used by backend token verification |
+| NEXT_PUBLIC_API_URL | Jenkins environment value | Public backend API URL baked into the web bundle |
+| NEXT_PUBLIC_FIREBASE_* | Jenkins environment values | Public Firebase web app configuration baked into the web bundle |
+
+Do not use a production Neon URL for CI. The isolated unit tests mock database and Firebase calls; the DATABASE_URL credential is present only because backend settings require it at import time. Do not run live-service integration tests against production from CI.
+The staging backend environment file must include the staging Neon URL, Firebase Admin configuration, Firebase project ID, and exact HTTPS ALLOWED_ORIGINS for the staging frontend.
 
 ---
 

@@ -1,8 +1,11 @@
 from datetime import datetime
 from sqlalchemy.orm import Session
+from fastapi import HTTPException, status
 from app.repositories.progress import progress_repo
 from app.models.progress import LectureProgress
 from app.models.user import User
+from app.models.course import Lecture
+from app.dependencies.auth import ensure_course_access
 from app.schemas.progress import ProgressUpdate, OverallProgress
 
 class ProgressService:
@@ -22,6 +25,11 @@ class ProgressService:
 
     @staticmethod
     def update_lecture_progress(db: Session, user: User, update: ProgressUpdate) -> dict:
+        lecture = db.query(Lecture).filter(Lecture.id == update.lecture_id).first()
+        if lecture is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lecture not found")
+        ensure_course_access(db, user, lecture.module.course)
+
         progress = progress_repo.get_lecture_progress(db, user_id=user.id, lecture_id=update.lecture_id)
         stats = progress_repo.get_user_stats(db, user_id=user.id)
 
@@ -37,11 +45,10 @@ class ProgressService:
             if update.completed:
                 stats.total_xp += 25
         else:
-            was_completed = progress.completed
             progress.completed = update.completed
             if update.watch_time_seconds:
                 progress.watch_time_seconds = update.watch_time_seconds
-            if update.completed and not was_completed:
+            if update.completed and progress.completed_at is None:
                 progress.completed_at = datetime.utcnow()
                 stats.total_xp += 25
 

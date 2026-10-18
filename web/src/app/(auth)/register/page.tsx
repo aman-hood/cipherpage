@@ -1,9 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import {
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  signOut,
+  updateProfile,
+} from 'firebase/auth'
+import { ensureFirebaseSessionPersistence, getFirebaseAuth } from '@/lib/firebase/client'
 
 export default function RegisterPage() {
   const [name, setName] = useState('')
@@ -11,9 +16,8 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const router = useRouter()
-  const supabase = createClient()
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -24,17 +28,21 @@ export default function RegisterPage() {
     
     setLoading(true)
     setError(null)
+    setNotice(null)
     
-    // Bypassing Supabase fetch for now since the URL is invalid
-    // Save to localStorage to simulate logged in user
-    localStorage.setItem('cipherpage_user', JSON.stringify({
-      name,
-      email
-    }))
-    
-    setTimeout(() => {
-      router.push('/dashboard')
-    }, 500)
+    try {
+      const auth = getFirebaseAuth()
+      await ensureFirebaseSessionPersistence(auth)
+      const credential = await createUserWithEmailAndPassword(auth, email.trim(), password)
+      await updateProfile(credential.user, { displayName: name.trim() })
+      await sendEmailVerification(credential.user)
+      await signOut(auth)
+      setNotice('Account created. Check your email to verify the address, then sign in.')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to create your account.')
+    } finally {
+      setLoading(false)
+    }
   }
 
 
@@ -57,6 +65,7 @@ export default function RegisterPage() {
               {error}
             </div>
           )}
+          {notice && <div className="bg-green-100 text-green-700 p-3 rounded text-sm">{notice}</div>}
           <div className="space-y-4">
             <div>
               <label htmlFor="name" className="sr-only">Full Name</label>

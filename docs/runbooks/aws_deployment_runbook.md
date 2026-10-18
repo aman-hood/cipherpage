@@ -1,161 +1,51 @@
-# CipherPage AWS Cloud Infrastructure & IaC Runbook
-**SRS v2.2 Compliance: OPS-05, OPS-06, OPS-07, OPS-08, OPS-11, OPS-12, AC-08**
+# CipherPage AWS Deployment & Infrastructure Runbook
 
-This runbook guides engineers and DevOps practitioners on deploying, validating, securing, and destroying cloud infrastructure for **CipherPage** using **Terraform** and **AWS CloudFormation**.
+## 1. Architecture
 
----
+CipherPage runs FastAPI and Next.js on AWS ECS behind an Application Load Balancer. Course assets remain in S3. Application records live in Neon PostgreSQL, and user authentication is provided by Firebase Authentication.
 
-## 1. Architecture & Network Topology
+AWS does not host the application database or Firebase identity store. ECS tasks need outbound HTTPS access to Neon and Firebase. Database traffic must use TLS. Keep the Neon URL and Firebase Admin credentials in AWS Secrets Manager; only the backend and worker receive them. The frontend receives public Firebase client configuration at image build time.
 
-CipherPage deploys a zero-trust multi-tier architecture on AWS:
+The CloudFormation template provisions VPC, subnets, security groups, S3, ECS cluster, and ALB. Terraform provisions ECS and supporting AWS resources and references owner-managed Neon and Firebase secrets by Secrets Manager ARN.
 
-```
-                            [ Internet Client ]
-                                     |
-                                     v  (HTTP / HTTPS)
-                    +----------------------------------+
-                    |  Application Load Balancer (ALB) |
-                    |      (Public Subnets 1 & 2)      |
-                    +----------------+-----------------+
-                                     |
-                +--------------------+--------------------+
-                |                                         |
-                | (Path: /api/*, /health)                 | (Default: /*)
-                v                                         v
-   +--------------------------+              +--------------------------+
-   |   FastAPI Backend Tasks  |              |   Next.js Frontend Tasks |
-   |  (ECS Fargate - Priv. 1) |              |  (ECS Fargate - Priv. 2) |
-   +------------+-------------+              +--------------------------+
-                |
-                +----------------------------+
-                |                            |
-                v (Port 5432)                v (S3 SDK)
-   +--------------------------+  +--------------------------------------+
-   |  RDS PostgreSQL 15 +     |  |   Encrypted S3 Course Assets Bucket  |
-   |   pgvector Extension     |  |     (Server-side AES256, No Public)  |
-   +--------------------------+  +--------------------------------------+
-```
+## 2. Terraform prerequisites and validation
 
----
+- Terraform 1.7 or newer is required by the state-safe removed blocks.
+- AWS CLI credentials and account/region must be confirmed before planning.
+- Supply non-production values in the local ignored tfvars file; the example contains placeholders.
+- Configure the owner-managed Secrets Manager ARNs for DATABASE_URL and Firebase Admin credentials, and the Firebase project ID.
+- Set exact HTTPS frontend origin(s) in allowed_origins; Terraform rejects an empty list or a non-HTTPS origin.
 
-## 2. Infrastructure as Code Options
+Run terraform fmt -check and terraform validate after initializing the required provider plugins. Review the complete plan, especially removed blocks and any legacy resources, before any apply. Never use an automatic approval flag.
 
-| Tool | Directory | Primary Use Case |
-| :--- | :--- | :--- |
-| **Terraform** | `infra/terraform/` | Modular, multi-cloud ready, declarative IaC for staging & production. |
-| **CloudFormation** | `infra/cloudformation/` | Native AWS single-click repeatable stack deployment without state storage. |
-| **Serverless Lambda**| `infra/serverless/` | Event-driven S3 media processing and pre-signed upload authorization. |
+## 3. Neon and Firebase configuration
 
----
+Set the DATABASE_URL secret to the project owner’s Neon PostgreSQL connection URL. Select the pooled endpoint for the application runtime when required by Neon’s connection mode, retain TLS, and ensure the connection pool fits the Neon plan limits.
 
-## 3. Terraform Staging Deployment Guide (OPS-05, OPS-11)
+Set FIREBASE_SERVICE_ACCOUNT_JSON from a trusted backend-only identity or secret. Set FIREBASE_PROJECT_ID to the matching Firebase project. The backend validates Firebase ID tokens; a public Firebase API key is not a server-side trust credential.
 
-### Prerequisites
-* AWS CLI v2 configured with valid credentials (`aws configure`)
-* Terraform CLI (v1.5+)
+Build the web image with NEXT_PUBLIC_API_URL and the owner-supplied NEXT_PUBLIC_FIREBASE_* client values. These are public browser configuration values and must not contain a service-account key or database credential.
 
-### Step 1: Pre-Deployment Validation (AC-08)
-Verify that your Terraform templates are structurally and syntactically sound without spending any cloud budget:
-```bash
-cd infra/terraform
+## 4. Existing RDS resources
 
-# Format validation
-terraform fmt -check
+The application configuration no longer creates or uses RDS. Terraform removed blocks for the old database and related networking use destroy=false, so a normal apply detaches those old resources from Terraform state rather than deleting them. Existing AWS resources can therefore remain running but unmanaged.
 
-# Validate provider schema and configuration
-terraform init -backend=false
-terraform validate
-```
+Before retiring legacy RDS, export and verify any required data, confirm the Neon migration, and obtain a separately approved cloud change. Do not remove the removed blocks or delete the old database until retention, export, and recovery requirements are satisfied. No production apply or database migration is part of source verification.
 
-### Step 2: Configure Environment Variables
-Copy the sanitized template:
-```bash
-cp terraform.tfvars.example terraform.tfvars
-```
-Update `terraform.tfvars` with your environment parameters. For zero-cost staging, keep `enable_nat_gateway = false`.
+## 5. Safe infrastructure changes
 
-### Step 3: Review Execution Plan
-```bash
-terraform plan -out=staging.tfplan
-```
-Inspect the proposed resources to ensure IAM permissions and network boundaries strictly match requirements.
+For a non-production infrastructure change:
 
-### Step 4: Apply Changes
-```bash
-terraform apply staging.tfplan
-```
+1. Confirm the AWS account, region, Terraform workspace, and secret ARNs.
+2. Validate formatting and provider configuration.
+3. Generate and review a plan without applying it.
+4. Verify no resource replacement, data destruction, or secret exposure is proposed.
+5. Apply only after a separate authorized review.
 
-### Outputs
-Upon successful completion, Terraform displays:
-* `alb_dns_name`: Public address for the web portal and API.
-* `rds_endpoint`: PostgreSQL endpoint.
-* `s3_course_assets_bucket`: Storage bucket name for lecture materials.
+Avoid terraform destroy for shared or production environments. The S3 assets bucket and other stateful resources require explicit backup and retention decisions before any teardown.
 
----
+## 6. Recovery
 
-## 4. CloudFormation Alternative Deployment (OPS-06)
+Use Neon’s approved point-in-time recovery or branch restore procedure for database recovery. Validate the recovery target separately before directing application traffic to it. Do not use RDS restore commands for the application database.
 
-To deploy using AWS CloudFormation:
-```bash
-aws cloudformation deploy \
-  --template-file infra/cloudformation/cipherpage-staging-stack.yaml \
-  --stack-name cipherpage-staging \
-  --parameter-overrides Environment=staging \
-  --capabilities CAPABILITY_IAM
-```
-
----
-
-## 5. Security & IAM Least-Privilege Controls (OPS-07, SEC-06)
-
-1. **No SSH into Production (`OPS-07`)**:
-   Compute is deployed on **AWS ECS Fargate**, eliminating bastion hosts and open SSH port 22 vulnerabilities.
-2. **Task Execution vs. Task Role Separation**:
-   * `ecs-execution-role`: Limited exclusively to pulling container images from ECR and emitting CloudWatch logs.
-   * `ecs-task-role`: Application container role granting least-privilege `s3:GetObject` and `s3:PutObject` permissions strictly scoped to `cipherpage-assets-*`.
-3. **Network Boundary Isolation**:
-   * RDS PostgreSQL is placed inside isolated database subnets with `publicly_accessible = false`.
-   * Security groups allow port 5432 ingress **only** from the ECS Security Group.
-4. **Encryption at Rest & In Transit**:
-   * All S3 objects use AES256 server-side encryption with public access blocked.
-   * Internal database connections enforce SSL.
-
----
-
-## 6. Cost Control & Safe Resource Cleanup (OPS-11)
-
-### AWS Budgets & Alarm Thresholds
-Terraform automatically creates an `aws_budgets_budget` monitoring actual spending:
-* **Monthly Cap**: \$15 USD.
-* **Alert Trigger**: Sends email notification when actual spend crosses 80% (\$12 USD).
-
-### Safe Shutdown & Destruction
-To completely dismantle demo or staging resources and eliminate billable charges:
-```bash
-cd infra/terraform
-terraform destroy -auto-approve
-```
-*Note: S3 buckets have `force_destroy = true` enabled in staging to facilitate frictionless teardown.*
-
----
-
-## 7. Disaster Recovery & Rollback Procedures
-
-### ECS Service Rollback
-If a newly deployed container version fails health checks:
-```bash
-# Roll back ECS service to previous task revision
-aws ecs update-service \
-  --cluster cipherpage-staging-cluster \
-  --service cipherpage-staging-backend-service \
-  --task-definition cipherpage-staging-backend:<PREVIOUS_REVISION>
-```
-
-### RDS Point-In-Time Recovery
-To recover from database corruption:
-```bash
-aws rds restore-db-instance-to-point-in-time \
-  --source-db-instance-identifier cipherpage-staging-pg \
-  --target-db-instance-identifier cipherpage-staging-pg-restored \
-  --restore-time 2026-10-11T12:00:00Z
-```
+ECS service rollback can use a previously approved task definition revision. Verify backend health, database connectivity, Firebase token verification, and frontend readiness in a non-production environment before promoting a release.

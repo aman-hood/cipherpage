@@ -30,7 +30,7 @@ import {
   getUserProgress, 
   calculateLevel 
 } from '@/lib/gamificationData';
-import { createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/features/auth/hooks/useAuth';
 import { 
   fetchLiveUserStats, 
   fetchLiveCertificates 
@@ -42,7 +42,8 @@ export default function AchievementsPage() {
   const [selectedCertificate, setSelectedCertificate] = useState<Certificate | null>(null);
   const [badgeFilter, setBadgeFilter] = useState<'all' | 'unlocked' | 'locked'>('all');
   const [copiedCertId, setCopiedCertId] = useState<string | null>(null);
-  const [userName, setUserName] = useState('Developer');
+  const { profile, user } = useAuth();
+  const userName = profile?.name || user?.displayName || user?.email?.split('@')[0] || 'Developer';
 
   useEffect(() => {
     const loadGamificationData = async () => {
@@ -50,34 +51,11 @@ export default function AchievementsPage() {
       const initial = getUserProgress();
       setProgress(initial);
 
-      try {
-        const savedUser = localStorage.getItem('cipherpage_user');
-        if (savedUser) {
-          const u = JSON.parse(savedUser);
-          if (u.name) setUserName(u.name);
-        }
-      } catch (e) {}
-
-      // 2. Fetch active Supabase session
-      let token: string | undefined;
-      try {
-        const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.access_token) {
-          token = session.access_token;
-          if (session.user?.user_metadata?.name) {
-            setUserName(session.user.user_metadata.name);
-          } else if (session.user?.email) {
-            setUserName(session.user.email.split('@')[0]);
-          }
-        }
-      } catch (e) {}
-
-      // 3. Hydrate live stats and certificates from backend
+      // Hydrate live stats and certificates using the active Firebase ID token.
       try {
         const [liveStats, liveCertificates] = await Promise.all([
-          fetchLiveUserStats(token).catch(() => null),
-          fetchLiveCertificates(token).catch(() => []),
+          fetchLiveUserStats().catch(() => null),
+          fetchLiveCertificates().catch(() => []),
         ]);
 
         if (liveStats) {
