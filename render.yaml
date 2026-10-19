@@ -29,6 +29,7 @@ services:
     repo: .
     # Directory that contains the Python entry point
     rootDir: backend
+    runtime: python-3.12.7
     # Render runs `pip install -r requirements.txt` automatically.
     # If you need a virtual‑env you can omit because Render creates one.
     buildCommand: pip install -r requirements.txt
