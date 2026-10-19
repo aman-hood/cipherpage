@@ -1,0 +1,40 @@
+services:
+  # ---------------------------------------------------------
+  # Frontend – Next.js (Node)
+  # ---------------------------------------------------------
+  - type: web
+    name: cipherpage-frontend
+    env: node
+    # Path inside the repo where the package.json lives
+    repo: .
+    # Directory that contains the Next.js app
+    rootDir: web
+    # Build step runs inside `rootDir`
+    buildCommand: npm ci && npm run build
+    # Start the production server (Next 12+ will respect `output: "standalone"`)
+    startCommand: npm start
+    # Render automatically detects the port (3000) and forwards it.
+    # If you use a custom port, expose it via `PORT` env var.
+    healthCheckPath: /
+    # Optional: auto‑scale, instance size, etc.
+    plan: starter
+    # (Optional) Pull env vars from the Render dashboard → *Environment* section.
+
+  # ---------------------------------------------------------
+  # Backend – FastAPI / Flask (Python)
+  # ---------------------------------------------------------
+  - type: web
+    name: cipherpage-backend
+    env: python
+    repo: .
+    # Directory that contains the Python entry point
+    rootDir: backend
+    # Render runs `pip install -r requirements.txt` automatically.
+    # If you need a virtual‑env you can omit because Render creates one.
+    buildCommand: pip install -r requirements.txt
+    # Adjust the module path to your actual FastAPI/Flask app.
+    # Assume the ASGI app lives in `backend/app/main.py` as `app`.
+    startCommand: gunicorn -w 2 -k uvicorn.workers.UvicornWorker app.main:app
+    # Expose the API on `/` (Render forwards the request’s path unchanged)
+    healthCheckPath: /
+    plan: starter
