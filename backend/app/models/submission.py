@@ -15,6 +15,7 @@ class Submission(Base):
     challenge_id = Column(Integer, ForeignKey("challenges.id", ondelete="CASCADE"), nullable=False, index=True)
     code = Column(Text, nullable=False)
     language = Column(String(50), nullable=False)
+    evaluation_mode = Column(String(16), default="submit", nullable=False, server_default="submit")
     status = Column(String(50), default="QUEUED", nullable=False, index=True) 
     # Statuses: QUEUED, RUNNING, PASSED, FAILED, COMPILE_ERROR, RUNTIME_ERROR, TIME_LIMIT_EXCEEDED, SYSTEM_ERROR
     score = Column(Float, default=0.0)

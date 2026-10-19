@@ -12,11 +12,13 @@ export interface SubmissionPayload {
   challenge_id: number;
   code: string;
   language: string;
+  mode: 'run' | 'submit';
 }
 
 export interface SubmissionResultDetail {
   id: number;
   test_case_id: number;
+  test_case_order: number;
   passed: boolean;
   stdout?: string;
   stderr?: string;
@@ -47,7 +49,7 @@ export interface SubmissionStatus {
 }
 
 export async function submitCode(
-  payload: { challenge_id: number; code: string; language: string },
+  payload: SubmissionPayload,
   token?: string
 ): Promise<EvaluationResult> {
   const authToken = await resolveAuthToken(token);
@@ -117,7 +119,7 @@ export async function pollSubmissionResult(
     const statusData = await getSubmissionStatus(submissionId, token);
     onStatusChange?.(statusData);
 
-    if (['PASSED', 'FAILED', 'COMPILE_ERROR', 'RUNTIME_ERROR', 'TIME_LIMIT_EXCEEDED', 'SYSTEM_ERROR'].includes(statusData.status)) {
+    if (['PASSED', 'FAILED', 'COMPILE_ERROR', 'RUNTIME_ERROR', 'TIME_LIMIT_EXCEEDED', 'SYSTEM_ERROR', 'SECURITY_VIOLATION'].includes(statusData.status)) {
       return await getSubmissionResult(submissionId, token);
     }
 

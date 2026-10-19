@@ -15,12 +15,10 @@ import {
   ShieldCheck,
   Cpu,
   Layers,
-  Flame,
   Award,
   History,
   Clock,
   Loader2,
-  AlertCircle,
   Bot
 } from 'lucide-react';
 import AIMentorDrawer from '@/components/AIMentorDrawer';
@@ -29,7 +27,6 @@ import {
   ProblemInfo, 
   TestCase, 
   getProblemDetails, 
-  getKnownBackendChallengeId, 
   resolveBackendChallengeId 
 } from '@/lib/problemsData';
 import { 
@@ -48,32 +45,36 @@ interface PracticeWorkspaceProps {
 
 type SupportedLanguage = 'python' | 'javascript' | 'typescript' | 'cpp' | 'java' | 'go';
 
-const LANGUAGES: { id: SupportedLanguage; label: string; version: string }[] = [
-  { id: 'python', label: 'Python', version: '3.11' },
-  { id: 'javascript', label: 'JavaScript', version: 'ES2023' },
-  { id: 'typescript', label: 'TypeScript', version: '5.4' },
-  { id: 'cpp', label: 'C++', version: 'GCC 17' },
-  { id: 'java', label: 'Java', version: 'OpenJDK 21' },
-  { id: 'go', label: 'Go', version: '1.22' },
+const LANGUAGES: { id: SupportedLanguage; label: string; supported: boolean }[] = [
+  { id: 'python', label: 'Python', supported: true },
+  { id: 'javascript', label: 'JavaScript', supported: false },
+  { id: 'typescript', label: 'TypeScript', supported: false },
+  { id: 'cpp', label: 'C++', supported: false },
+  { id: 'java', label: 'Java', supported: false },
+  { id: 'go', label: 'Go', supported: false },
 ];
 
-export default function PracticeWorkspace({
+export default function PracticeWorkspace(props: PracticeWorkspaceProps) {
+  const problemKey = `${props.problemNumber ?? '486'}:${props.problemTitle ?? ''}`;
+  return <PracticeWorkspaceSession key={problemKey} {...props} />;
+}
+
+function PracticeWorkspaceSession({
   problemNumber = '486',
   problemTitle,
   onSolveSuccess,
   className = '',
 }: PracticeWorkspaceProps) {
-  const [problem, setProblem] = useState<ProblemInfo>(() => 
-    getProblemDetails(problemNumber, problemTitle)
-  );
+  const problem: ProblemInfo = getProblemDetails(problemNumber, problemTitle);
 
   const [language, setLanguage] = useState<SupportedLanguage>('python');
-  const [code, setCode] = useState<string>('');
+  const [codeByLanguage, setCodeByLanguage] = useState<Partial<Record<SupportedLanguage, string>>>({});
+  const code = codeByLanguage[language] ?? problem.starterCode[language] ?? problem.starterCode.python;
   const [copied, setCopied] = useState(false);
   const [selectedTestCaseIndex, setSelectedTestCaseIndex] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [submissionStatusText, setSubmissionStatusText] = useState<string>('');
-  const [testResults, setTestResults] = useState<TestCase[]>([]);
+  const [testResults, setTestResults] = useState<TestCase[]>(() => problem.testCases.map((testCase) => ({ ...testCase })));
   const [runSuccess, setRunSuccess] = useState<boolean | null>(null);
   const [rightPanelTab, setRightPanelTab] = useState<'testcases' | 'history'>('testcases');
   const [historyList, setHistoryList] = useState<EvaluationResult[]>([]);
@@ -81,50 +82,64 @@ export default function PracticeWorkspace({
   const [lastMemoryUsage, setLastMemoryUsage] = useState<string | null>(null);
   const [isMentorOpen, setIsMentorOpen] = useState(false);
 
-  // Dynamic backend challenge ID state with synchronous fallback
-  const [challengeId, setChallengeId] = useState<number>(() =>
-    getKnownBackendChallengeId(problemNumber, problemTitle)
-  );
+  const [challengeId, setChallengeId] = useState<number | null>(null);
+  const [challengeState, setChallengeState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
 
   const getActiveAuthToken = getFirebaseIdToken;
+  const resolutionTitle = problemTitle || getProblemDetails(problemNumber, problemTitle).title;
 
-  // Resolve backend challenge ID whenever problem changes
+  // Resolve the real backend ID. A missing challenge must never be replaced by a guessed ID.
   useEffect(() => {
     let isMounted = true;
-    resolveBackendChallengeId(problemNumber, problemTitle).then((id) => {
-      if (isMounted) setChallengeId(id);
+    resolveBackendChallengeId(problemNumber, resolutionTitle).then((id) => {
+      if (!isMounted) return;
+      setChallengeId(id);
+      setChallengeState(id === null ? 'unavailable' : 'ready');
+    }).catch(() => {
+      if (!isMounted) return;
+      setChallengeId(null);
+      setChallengeState('unavailable');
     });
     return () => {
       isMounted = false;
     };
-  }, [problemNumber, problemTitle]);
+  }, [problemNumber, resolutionTitle]);
 
-  // Update problem when problemNumber changes
   useEffect(() => {
-    const details = getProblemDetails(problemNumber, problemTitle);
-    setProblem(details);
-    setCode(details.starterCode[language] || details.starterCode.python);
-    setTestResults(details.testCases.map(tc => ({ ...tc })));
-    setRunSuccess(null);
-    setLastExecutionTime(null);
-    setLastMemoryUsage(null);
+    if (challengeId === null) {
+      return;
+    }
 
-    // Fetch submission history with active token
-    getActiveAuthToken().then((token) => {
-      getSubmissionHistory(challengeId, token).then(data => {
-        if (data && data.length > 0) setHistoryList(data);
-      }).catch(() => {});
-    });
-  }, [problemNumber, problemTitle, language, challengeId]);
+    let isMounted = true;
+    getActiveAuthToken()
+      .then((token) => getSubmissionHistory(challengeId, token))
+      .then((data) => {
+        if (isMounted) setHistoryList(data);
+      })
+      .catch(() => {
+        if (isMounted) setHistoryList([]);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [challengeId, getActiveAuthToken]);
 
   const handleLanguageChange = (newLang: SupportedLanguage) => {
+    if (!LANGUAGES.some((item) => item.id === newLang && item.supported)) return;
     setLanguage(newLang);
-    setCode(problem.starterCode[newLang] || problem.starterCode.python);
   };
 
   const handleResetCode = () => {
-    setCode(problem.starterCode[language] || problem.starterCode.python);
+    setCodeByLanguage((current) => ({
+      ...current,
+      [language]: problem.starterCode[language] || problem.starterCode.python,
+    }));
     setRunSuccess(null);
+  };
+
+  const handleCodeChange = (value: string) => {
+    setCodeByLanguage((current) => ({ ...current, [language]: value }));
   };
 
   const handleCopyCode = () => {
@@ -135,6 +150,12 @@ export default function PracticeWorkspace({
 
   // Run/Submit code against isolated backend runner
   const handleRunTests = async (runAll: boolean = true) => {
+    if (challengeId === null) {
+      setRunSuccess(false);
+      setSubmissionStatusText('This challenge is not available on the evaluation server yet.');
+      return;
+    }
+
     setIsRunning(true);
     setRightPanelTab('testcases');
     setSubmissionStatusText('QUEUED...');
@@ -147,6 +168,7 @@ export default function PracticeWorkspace({
         challenge_id: challengeId,
         code: code,
         language: language,
+        mode: runAll ? 'submit' : 'run',
       }, token);
 
       setSubmissionStatusText('DISPATCHED TO ISOLATED RUNNER...');
@@ -165,7 +187,7 @@ export default function PracticeWorkspace({
       setLastExecutionTime(`${execMs}ms`);
       setLastMemoryUsage(`${finalResult.memory_usage.toFixed(1)}MB`);
 
-      const totalToRun = runAll ? 10 : 5;
+      const totalToRun = finalResult.total_tests;
       const allPassed = finalResult.status === 'PASSED';
 
       // 3. Map backend results or apply evaluation to test cases (zero false positive fallback)
@@ -174,15 +196,17 @@ export default function PracticeWorkspace({
           return { ...tc, actualOutput: undefined, isPassed: undefined };
         }
 
-        const backendResult = finalResult.results?.find(r => r.test_case_id === tc.id);
-        const passed = backendResult !== undefined ? backendResult.passed : allPassed;
-        const actualOut = backendResult?.stdout || (allPassed ? tc.expectedOutput : (finalResult.error_message || 'Wrong Answer / Runtime Error'));
+        const backendResult = finalResult.results?.find(
+          (result) => result.test_case_order === index + 1 || result.test_case_id === tc.id
+        );
+        const passed = backendResult?.passed ?? allPassed;
+        const actualOut = backendResult?.stdout ?? (passed ? tc.expectedOutput : (finalResult.error_message || 'Wrong Answer / Runtime Error'));
 
         return {
           ...tc,
           actualOutput: actualOut,
           isPassed: passed,
-          executionTime: `${Math.round((backendResult?.execution_time || finalResult.execution_time / 10) * 1000)}ms`,
+          executionTime: `${Math.round((backendResult?.execution_time ?? finalResult.execution_time / Math.max(totalToRun, 1)) * 1000)}ms`,
         };
       });
 
@@ -200,7 +224,7 @@ export default function PracticeWorkspace({
             list.push(problem.id);
             localStorage.setItem('cipherpage_solved_potds', JSON.stringify(list));
           }
-        } catch (e) {}
+        } catch {}
 
         onSolveSuccess?.();
       }
@@ -225,6 +249,7 @@ export default function PracticeWorkspace({
   };
 
   const passedCount = testResults.filter((tc) => tc.isPassed === true).length;
+  const evaluatedCount = testResults.filter((tc) => tc.isPassed !== undefined).length;
   const currentTestCase = testResults[selectedTestCaseIndex] || problem.testCases[0];
 
   return (
@@ -264,10 +289,14 @@ export default function PracticeWorkspace({
               <button
                 key={lang.id}
                 onClick={() => handleLanguageChange(lang.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                disabled={!lang.supported}
+                title={lang.supported ? `${lang.label} runner available` : `${lang.label} runner is not configured yet`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                   language === lang.id
                     ? 'bg-cyan-500 text-zinc-950 font-bold shadow-md'
-                    : 'text-zinc-400 hover:text-white'
+                    : lang.supported
+                      ? 'text-zinc-400 hover:text-white cursor-pointer'
+                      : 'text-zinc-600 cursor-not-allowed'
                 }`}
               >
                 {lang.label}
@@ -303,19 +332,31 @@ export default function PracticeWorkspace({
               <span>solution.{language === 'cpp' ? 'cpp' : language === 'python' ? 'py' : language === 'javascript' ? 'js' : language === 'typescript' ? 'ts' : language === 'java' ? 'java' : 'go'}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span className="text-[11px] text-zinc-400 font-mono">Isolated Runner Ready (Celery/Judge0)</span>
+              <span className={`w-2 h-2 rounded-full ${challengeState === 'ready' ? 'bg-emerald-400' : challengeState === 'loading' ? 'bg-amber-400 animate-pulse' : 'bg-rose-400'}`}></span>
+              <span className="text-[11px] text-zinc-400 font-mono">
+                {challengeState === 'loading'
+                  ? 'Loading challenge…'
+                  : challengeState === 'ready'
+                    ? 'Python 3.11 • server-side evaluator'
+                    : 'Challenge unavailable'}
+              </span>
             </div>
           </div>
 
           <div className="flex-1">
             <MonacoCodeEditor
               value={code}
-              onChange={setCode}
+              onChange={handleCodeChange}
               language={language}
               height="400px"
             />
           </div>
+
+          {challengeState === 'unavailable' && (
+            <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-200" role="status">
+              Your code stays in the editor, but this challenge is not published in the evaluation database yet. Run the backend challenge-data migration before submitting.
+            </div>
+          )}
 
           {/* Action Bar */}
           <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/5">
@@ -335,18 +376,20 @@ export default function PracticeWorkspace({
               </button>
 
               <button
-                disabled={isRunning}
+                disabled={isRunning || challengeState !== 'ready'}
                 onClick={() => handleRunTests(false)}
-                className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold border border-white/10 transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold border border-white/10 transition-colors flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                title={challengeState === 'ready' ? 'Run the 5 public test cases' : 'The challenge must be published before code can run'}
               >
                 <Play className="w-3.5 h-3.5 fill-current" />
                 <span>Run (5 Basic)</span>
               </button>
 
               <button
-                disabled={isRunning}
+                disabled={isRunning || challengeState !== 'ready'}
                 onClick={() => handleRunTests(true)}
-                className="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-cyan-400 hover:from-cyan-400 hover:to-cyan-300 text-zinc-950 text-xs font-bold transition-all shadow-[0_0_20px_-3px_rgba(6,182,212,0.4)] flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-cyan-400 hover:from-cyan-400 hover:to-cyan-300 text-zinc-950 text-xs font-bold transition-all shadow-[0_0_20px_-3px_rgba(6,182,212,0.4)] flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                title={challengeState === 'ready' ? 'Submit against all test cases' : 'The challenge must be published before code can run'}
               >
                 {isRunning ? (
                   <>
@@ -401,7 +444,7 @@ export default function PracticeWorkspace({
                   : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
               }`}>
                 {runSuccess ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                {passedCount}/10 Passed
+                {passedCount}/{evaluatedCount} Passed
               </span>
             )}
           </div>
@@ -596,7 +639,7 @@ export default function PracticeWorkspace({
       <AIMentorDrawer
         isOpen={isMentorOpen}
         onClose={() => setIsMentorOpen(false)}
-        challengeId={challengeId}
+        challengeId={challengeId ?? undefined}
         code={code}
         language={language}
         lastErrorOutput={testResults.find(t => t.isPassed === false)?.actualOutput || ''}

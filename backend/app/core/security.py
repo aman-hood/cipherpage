@@ -2,6 +2,7 @@
 
 from typing import Any
 import json
+from pathlib import Path
 
 from app.core.config import settings
 
@@ -29,11 +30,24 @@ def get_firebase_admin_app():
             app = firebase_admin.get_app()
         except ValueError:
             service_account = settings.FIREBASE_SERVICE_ACCOUNT_JSON
-            credential = (
-                credentials.Certificate(json.loads(service_account))
-                if service_account
-                else credentials.ApplicationDefault()
-            )
+            if service_account:
+                service_account_path = Path(service_account).expanduser()
+                if service_account_path.is_file():
+                    credential = credentials.Certificate(str(service_account_path))
+                else:
+                    try:
+                        service_account_data = json.loads(service_account)
+                    except json.JSONDecodeError as exc:
+                        raise FirebaseVerificationUnavailable(
+                            "Firebase service-account configuration must be a JSON file path or JSON object"
+                        ) from exc
+                    if not isinstance(service_account_data, dict):
+                        raise FirebaseVerificationUnavailable(
+                            "Firebase service-account configuration is invalid"
+                        )
+                    credential = credentials.Certificate(service_account_data)
+            else:
+                credential = credentials.ApplicationDefault()
             app = firebase_admin.initialize_app(
                 credential,
                 {"projectId": settings.FIREBASE_PROJECT_ID},

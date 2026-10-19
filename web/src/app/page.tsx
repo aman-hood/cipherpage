@@ -17,7 +17,7 @@ import {
   Cpu
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function Home() {
   const [demoTab, setDemoTab] = useState<'learn' | 'apply' | 'grow'>('apply');

@@ -14,13 +14,23 @@ class SubmissionService:
         if not challenge:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Challenge not found")
 
-        total_tests = len(challenge.test_cases) if challenge.test_cases else 0
+        challenge_test_cases = sorted(challenge.test_cases or [], key=lambda test_case: test_case.order)
+        if submission_in.mode == "run":
+            challenge_test_cases = [test_case for test_case in challenge_test_cases if not test_case.is_hidden]
+
+        total_tests = len(challenge_test_cases)
+        if total_tests == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This challenge has no test cases available for this operation",
+            )
 
         submission = Submission(
             user_id=current_user.id,
             challenge_id=submission_in.challenge_id,
             code=submission_in.code,
             language=submission_in.language,
+            evaluation_mode=submission_in.mode,
             status="QUEUED",
             score=0.0,
             tests_passed=0,
@@ -62,6 +72,7 @@ class SubmissionService:
             SubmissionResultDetail(
                 id=r.id,
                 test_case_id=r.test_case_id,
+                test_case_order=r.test_case.order,
                 passed=r.passed,
                 stdout=r.stdout,
                 stderr=r.stderr,

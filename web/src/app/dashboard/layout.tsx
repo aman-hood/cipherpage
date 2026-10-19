@@ -1,9 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { Home, BookOpen, Trophy, Settings, LogOut, Code2 } from 'lucide-react';
+import { Home, BookOpen, Trophy, Settings, LogOut, Code2, ChevronDown, UserRound } from 'lucide-react';
 import Image from 'next/image';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 
@@ -13,9 +13,31 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const pathname = usePathname();
-  const { user, profile, loading, profileError, signOut } = useAuth();
+  const { user, profile, loading, profileError, retryProfile, signOut } = useAuth();
+
+  useEffect(() => {
+    if (!accountMenuOpen) return
+
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (event.target instanceof Node && !accountMenuRef.current?.contains(event.target)) {
+        setAccountMenuOpen(false)
+      }
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAccountMenuOpen(false)
+    }
+
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [accountMenuOpen])
 
   useEffect(() => {
     if (!loading && !user) router.replace('/login');
@@ -51,6 +73,7 @@ export default function DashboardLayout({
         <div className="max-w-lg text-center space-y-4">
           <h1 className="text-xl font-semibold">Account profile unavailable</h1>
           <p>{profileError || 'Your account could not be loaded.'}</p>
+          <button onClick={() => void retryProfile()} className="rounded bg-cyan-700 px-4 py-2">Try again</button>
           <button onClick={handleLogout} className="rounded bg-cyan-700 px-4 py-2">Sign out</button>
         </div>
       </div>
@@ -136,12 +159,54 @@ export default function DashboardLayout({
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto">
         <div className="h-20 flex items-center justify-end px-8 border-b border-white/5 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-10">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-cyan-500 to-purple-500 p-[2px]">
-              <div className="w-full h-full rounded-full bg-zinc-900 border-2 border-transparent flex items-center justify-center overflow-hidden">
-                <span className="font-semibold text-sm">{initials}</span>
+          <div className="relative" ref={accountMenuRef}>
+            <button
+              type="button"
+              onClick={() => setAccountMenuOpen((open) => !open)}
+              aria-label="Open account options"
+              aria-expanded={accountMenuOpen}
+              aria-controls="dashboard-account-menu"
+              className="flex items-center gap-2 rounded-full p-1 pr-3 text-zinc-300 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+            >
+              <span className="w-10 h-10 rounded-full bg-gradient-to-tr from-cyan-500 to-purple-500 p-[2px]">
+                <span className="w-full h-full rounded-full bg-zinc-900 border-2 border-transparent flex items-center justify-center overflow-hidden">
+                  <span className="font-semibold text-sm">{initials}</span>
+                </span>
+              </span>
+              <ChevronDown className={`w-4 h-4 transition-transform ${accountMenuOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+            </button>
+
+            {accountMenuOpen && (
+              <div
+                id="dashboard-account-menu"
+                className="absolute right-0 top-full mt-3 w-72 rounded-2xl border border-white/10 bg-zinc-900 p-2 shadow-2xl shadow-black/40"
+              >
+                <div className="border-b border-white/5 px-3 py-3">
+                  <p className="truncate text-sm font-semibold text-white">{profile.name}</p>
+                  <p className="mt-1 truncate text-xs text-zinc-400">{profile.email}</p>
+                  <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-cyan-500/10 px-2.5 py-1 text-[11px] font-medium text-cyan-300">
+                    <UserRound className="h-3 w-3" aria-hidden="true" />
+                    {profile.role.replaceAll('_', ' ')}
+                  </p>
+                </div>
+                <Link
+                  href="/dashboard/settings"
+                  onClick={() => setAccountMenuOpen(false)}
+                  className="mt-1 flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-zinc-300 transition-colors hover:bg-white/5 hover:text-white"
+                >
+                  <Settings className="h-4 w-4" aria-hidden="true" />
+                  Account settings
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => { setAccountMenuOpen(false); void handleLogout() }}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-zinc-300 transition-colors hover:bg-red-500/10 hover:text-red-300"
+                >
+                  <LogOut className="h-4 w-4" aria-hidden="true" />
+                  Sign out
+                </button>
               </div>
-            </div>
+            )}
           </div>
         </div>
         <div className="p-8">

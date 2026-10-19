@@ -40,12 +40,14 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-      target: development
+      target: runner
     container_name: cipherpage-celery-worker
     # Command scales background task processing (e.g., grading code submissions)
     command: celery -A app.workers.celery_app worker --loglevel=info
     volumes:
       - ./backend:/app
+      # Only the trusted grading worker needs to launch isolated execution containers.
+      - /var/run/docker.sock:/var/run/docker.sock
     env_file:
       - ./backend/.env
     depends_on:

@@ -1,15 +1,17 @@
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import datetime
 from pydantic import BaseModel, Field
 
 class CodeSubmission(BaseModel):
     challenge_id: int
     code: str = Field(..., max_length=65536, description="Source code")
-    language: str = Field(..., description="python, javascript, typescript, cpp, java, go")
+    language: Literal["python"] = Field(..., description="Python is the only configured evaluation runtime")
+    mode: Literal["run", "submit"] = "submit"
 
 class SubmissionResultDetail(BaseModel):
     id: int
     test_case_id: int
+    test_case_order: int
     passed: bool
     stdout: Optional[str] = None
     stderr: Optional[str] = None

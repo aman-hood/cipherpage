@@ -22,6 +22,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitingMiddleware)
 
 from app.core.config import settings
+# Firebase Admin reads its credential setting directly; do not copy credentials into process-wide environment variables.
 import redis
 
 # Prometheus Observability Middleware (OPS-09, NFR-06)

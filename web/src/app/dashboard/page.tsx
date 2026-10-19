@@ -202,6 +202,23 @@ export default function Dashboard() {
   const [selectedDay, setSelectedDay] = useState(1);
   const [solvedPotds, setSolvedPotds] = useState<string[]>([]);
   const [showPracticeWorkspace, setShowPracticeWorkspace] = useState(false);
+  // New state for dynamic metrics
+  const [streakDays, setStreakDays] = useState<number>(0);
+  const [hoursLearned, setHoursLearned] = useState<number>(0);
+  // Store dates of days with at least one solved problem
+  const [solvedDates, setSolvedDates] = useState<string[]>([]);
+
+  // Load persisted metrics
+  useEffect(() => {
+    try {
+      const savedSolved = localStorage.getItem('cipherpage_solved_potds');
+      if (savedSolved) setSolvedPotds(JSON.parse(savedSolved));
+      const savedStreak = localStorage.getItem('cipherpage_current_streak');
+      if (savedStreak) setStreakDays(parseInt(savedStreak, 10));
+      const savedHours = localStorage.getItem('cipherpage_hours_learned');
+      if (savedHours) setHoursLearned(parseFloat(savedHours));
+    } catch (e) {}
+  }, []);
 
   useEffect(() => {
     try {
@@ -257,6 +274,45 @@ export default function Dashboard() {
       : [...solvedPotds, videoId];
     setSolvedPotds(updated);
     localStorage.setItem('cipherpage_solved_potds', JSON.stringify(updated));
+
+    // Record today's date as solved if not already present
+    const todayStr = new Date().toISOString().split('T')[0];
+    let newSolvedDates = solvedDates;
+    if (!solvedDates.includes(todayStr)) {
+      newSolvedDates = [...solvedDates, todayStr];
+      setSolvedDates(newSolvedDates);
+      localStorage.setItem('cipherpage_solved_dates', JSON.stringify(newSolvedDates));
+    }
+
+    // Recompute streak based on consecutive solved dates up to today
+    const datesSet = new Set(newSolvedDates);
+    let streak = 0;
+    const today = new Date();
+    for (let i = 0; i < 365; i++) {
+      const dateKey = today.toISOString().split('T')[0];
+      if (datesSet.has(dateKey)) {
+        streak++;
+        today.setDate(today.getDate() - 1);
+      } else {
+        break;
+      }
+    }
+    setStreakDays(streak);
+    localStorage.setItem('cipherpage_current_streak', streak.toString());
+
+    // Increment hours learned by a fixed amount per solved POTD (e.g., 0.5h)
+    const addedHours = 0.5;
+    const totalHours = parseFloat(localStorage.getItem('cipherpage_hours_learned') || '0') + addedHours;
+    setHoursLearned(totalHours);
+    localStorage.setItem('cipherpage_hours_learned', totalHours.toString());
+  };
+
+  const handleVideoWatched = (videoId: string) => {
+    // Add hours for video watch (e.g., 0.5h per watch)
+    const addedHours = 0.5;
+    const total = parseFloat(localStorage.getItem('cipherpage_hours_learned') || '0') + addedHours;
+    setHoursLearned(total);
+    localStorage.setItem('cipherpage_hours_learned', total.toString());
   };
 
   const isCurrentSolved = selectedPOTDVideo && solvedPotds.includes(selectedPOTDVideo.videoId);
@@ -281,7 +337,7 @@ export default function Dashboard() {
             <Activity className="w-6 h-6 text-cyan-400" />
           </div>
           <p className="text-zinc-400 text-sm font-medium mb-1">Current Streak</p>
-          <h4 className="text-3xl font-bold text-white">12 Days</h4>
+          <h4 className="text-3xl font-bold text-white">{streakDays} Days</h4>
         </div>
         
         <div className="p-6 rounded-2xl bg-zinc-900/50 border border-white/5 shadow-xl relative overflow-hidden group hover:border-purple-500/30 transition-colors">
@@ -289,7 +345,7 @@ export default function Dashboard() {
           <div className="w-12 h-12 bg-purple-500/10 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
             <BookOpen className="w-6 h-6 text-purple-400" />
           </div>
-          <p className="text-zinc-400 text-sm font-medium mb-1">POTD Solutions Solved</p>
+          <p className="text-zinc-400 text-sm font-medium mb-1">Questions Solved</p>
           <h4 className="text-3xl font-bold text-white">{solvedPotds.length}</h4>
         </div>
         
@@ -299,7 +355,7 @@ export default function Dashboard() {
             <Clock className="w-6 h-6 text-emerald-400" />
           </div>
           <p className="text-zinc-400 text-sm font-medium mb-1">Hours Learned</p>
-          <h4 className="text-3xl font-bold text-white">32.5h</h4>
+          <h4 className="text-3xl font-bold text-white">{hoursLearned}h</h4>
         </div>
       </div>
 

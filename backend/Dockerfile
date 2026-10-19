@@ -41,6 +41,13 @@ COPY . /app
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
+# The trusted Celery grading worker launches short-lived, isolated runner
+# containers through the Docker Engine. The API and frontend do not need this CLI.
+FROM development AS runner
+
+RUN apt-get update && apt-get install -y --no-install-recommends docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
 # ---------------------------------------------------------
 # Stage 4: Production Target (Hardened, non-root user)
 # ---------------------------------------------------------

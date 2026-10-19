@@ -5,13 +5,13 @@ AST-based static analysis blocking dangerous syscalls and modules,
 and sanitization of system credentials and secrets (CODE-08).
 """
 import os
-import sys
 import time
 import subprocess
 import tempfile
 import json
 import ast
 import shutil
+import uuid
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
 
@@ -83,6 +83,7 @@ class IsolatedCodeRunner:
         self.default_timeout = default_timeout
         self.default_memory_mb = default_memory_mb
         self._docker_available = self._check_docker()
+        self._runner_image_available = self._check_runner_image() if self._docker_available else False
 
     def _check_docker(self) -> bool:
         """Check if Docker CLI and daemon are accessible."""
@@ -96,6 +97,18 @@ class IsolatedCodeRunner:
                 timeout=1.5
             )
             return res.returncode == 0
+        except Exception:
+            return False
+
+    def _check_runner_image(self) -> bool:
+        try:
+            result = subprocess.run(
+                ["docker", "image", "inspect", "python:3.11-alpine"],
+                capture_output=True,
+                timeout=1.5,
+                env=self._sanitize_env(),
+            )
+            return result.returncode == 0
         except Exception:
             return False
 
@@ -119,6 +132,31 @@ class IsolatedCodeRunner:
         memory_limit: Optional[int] = None
     ) -> TestCaseResult:
         timeout = time_limit or self.default_timeout
+
+        # Never execute user submissions in the API or worker host process.
+        if not self._docker_available:
+            return TestCaseResult(
+                passed=False,
+                stdout="",
+                stderr="Docker is required for isolated Python execution but is unavailable.",
+                execution_time=0.0,
+                memory_usage=0.0,
+                error_message="Secure code runner unavailable. Start Docker Desktop and grant the backend/worker process access to its engine.",
+                status="SYSTEM_ERROR"
+            )
+
+        if not self._runner_image_available:
+            self._runner_image_available = self._check_runner_image()
+        if not self._runner_image_available:
+            return TestCaseResult(
+                passed=False,
+                stdout="",
+                stderr="The Python 3.11 runner image is not available locally.",
+                execution_time=0.0,
+                memory_usage=0.0,
+                error_message="Python runner image missing. Run `docker pull python:3.11-alpine` on the evaluation worker, then retry.",
+                status="SYSTEM_ERROR"
+            )
 
         # 1. Static AST Security Validation
         try:
@@ -188,29 +226,30 @@ __run_eval()
 """
 
         start_time = time.time()
-        temp_filename = None
+        container_name = f"cipherpage-eval-{uuid.uuid4().hex}"
         try:
-            with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
-                f.write(wrapper_script)
-                temp_filename = f.name
-
-            # Use Docker sandbox if available, otherwise sanitized subprocess
-            if self._docker_available:
-                cmd = [
-                    "docker", "run", "--rm",
-                    "--network", "none",
-                    "--memory", f"{self.default_memory_mb}m",
-                    "--cpus", "0.5",
-                    "-v", f"{temp_filename}:/tmp/run.py:ro",
-                    "python:3.11-alpine",
-                    "python", "/tmp/run.py"
-                ]
-            else:
-                cmd = [sys.executable, temp_filename]
+            cmd = [
+                "docker", "run", "--rm",
+                "--name", container_name,
+                "--pull=never",
+                "-i",
+                "--network", "none",
+                "--memory", f"{memory_limit or self.default_memory_mb}m",
+                "--memory-swap", f"{memory_limit or self.default_memory_mb}m",
+                "--cpus", "0.5",
+                "--pids-limit", "64",
+                "--cap-drop", "ALL",
+                "--security-opt", "no-new-privileges",
+                "--read-only",
+                "--user", "65534:65534",
+                "--tmpfs", "/tmp:rw,noexec,nosuid,size=16m",
+                "python:3.11-alpine",
+                "python", "-c", "import sys; exec(sys.stdin.read())"
+            ]
 
             proc = subprocess.run(
                 cmd,
-                input=input_data,
+                input=wrapper_script,
                 text=True,
                 capture_output=True,
                 timeout=timeout,
@@ -267,11 +306,15 @@ __run_eval()
                 status="RUNTIME_ERROR"
             )
         finally:
-            if temp_filename and os.path.exists(temp_filename):
-                try:
-                    os.remove(temp_filename)
-                except OSError:
-                    pass
+            try:
+                subprocess.run(
+                    ["docker", "rm", "--force", container_name],
+                    capture_output=True,
+                    timeout=5,
+                    env=self._sanitize_env(),
+                )
+            except Exception:
+                pass
 
     def run_javascript_test(
         self,
@@ -377,8 +420,6 @@ try {{
         lang = language.lower()
         if lang == "python":
             return self.run_python_test(code, input_data, expected_output, time_limit, memory_limit)
-        elif lang in ("javascript", "typescript", "js", "ts"):
-            return self.run_javascript_test(code, input_data, expected_output, time_limit)
         else:
             return TestCaseResult(
                 passed=False,
@@ -387,7 +428,7 @@ try {{
                 execution_time=0.0,
                 memory_usage=0.0,
                 error_message=f"Unsupported language runtime: {language}",
-                status="RUNTIME_ERROR"
+                status="SYSTEM_ERROR"
             )
 
 code_runner = IsolatedCodeRunner()

@@ -9,6 +9,7 @@ from app.core.security import (
     FirebaseVerificationUnavailable,
     verify_firebase_id_token,
 )
+
 from app.database.session import get_db
 from app.models.user import User
 from app.models.course import Course

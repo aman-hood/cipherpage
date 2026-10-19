@@ -65,83 +65,37 @@ Return \`true\` if Player 1 can win the game. If the scores between players are 
     starterCode: {
       python: `class Solution:
     def predictTheWinner(self, nums: list[int]) -> bool:
-        # Write your optimal DP or recursion with memoization here
-        n = len(nums)
-        dp = list(nums)
-        for diff in range(1, n):
-            for i in range(n - diff):
-                j = i + diff
-                dp[i] = max(nums[i] - dp[i + 1], nums[j] - dp[i])
-        return dp[0] >= 0
+        # Write your solution here
+        pass
 `,
       javascript: `/**
  * @param {number[]} nums
  * @return {boolean}
  */
 function predictTheWinner(nums) {
-  const n = nums.length;
-  const dp = [...nums];
-  for (let diff = 1; diff < n; diff++) {
-    for (let i = 0; i < n - diff; i++) {
-      const j = i + diff;
-      dp[i] = Math.max(nums[i] - dp[i + 1], nums[j] - dp[i]);
-    }
-  }
-  return dp[0] >= 0;
+  // Write your solution here
 }
 `,
       typescript: `function predictTheWinner(nums: number[]): boolean {
-  const n = nums.length;
-  const dp = [...nums];
-  for (let diff = 1; diff < n; diff++) {
-    for (let i = 0; i < n - diff; i++) {
-      const j = i + diff;
-      dp[i] = Math.max(nums[i] - dp[i + 1], nums[j] - dp[i]);
-    }
-  }
-  return dp[0] >= 0;
+  // Write your solution here
 }
 `,
       cpp: `class Solution {
 public:
     bool predictTheWinner(vector<int>& nums) {
-        int n = nums.size();
-        vector<int> dp = nums;
-        for (int diff = 1; diff < n; diff++) {
-            for (int i = 0; i < n - diff; i++) {
-                int j = i + diff;
-                dp[i] = max(nums[i] - dp[i + 1], nums[j] - dp[i]);
-            }
-        }
-        return dp[0] >= 0;
+        // Write your solution here
     }
 };
 `,
       java: `class Solution {
     public boolean predictTheWinner(int[] nums) {
-        int n = nums.length;
-        int[] dp = nums.clone();
-        for (int diff = 1; diff < n; diff++) {
-            for (int i = 0; i < n - diff; i++) {
-                int j = i + diff;
-                dp[i] = Math.max(nums[i] - dp[i + 1], nums[j] - dp[i]);
-            }
-        }
-        return dp[0] >= 0;
+        // Write your solution here
     }
 }
 `,
       go: `func predictTheWinner(nums []int) bool {
-    n := len(nums)
-    dp := make([]int, n)
-    copy(dp, nums)
-    for diff := 1; diff < n; diff++ {
-        for i := 0; i < n-diff; i++ {
-            j := i + diff
-            dp[i] = max(nums[i]-dp[i+1], nums[j]-dp[i])
-        }
-    }
-    return dp[0] >= 0
+    // Write your solution here
+    return false
 }
 `
     },
@@ -149,15 +103,15 @@ public:
       // 5 Basic Testcases
       { id: 1, category: 'basic', input: 'nums = [1, 5, 2]', expectedOutput: 'false', explanation: 'Player 2 can secure 5 and beat Player 1' },
       { id: 2, category: 'basic', input: 'nums = [1, 5, 233, 7]', expectedOutput: 'true', explanation: 'Player 1 can pick 1 then grab 233' },
-      { id: 3, category: 'basic', input: 'nums = [1]', expectedOutput: 'true', explanation: 'Single element, player 1 immediately wins' },
-      { id: 4, category: 'basic', input: 'nums = [2, 4]', expectedOutput: 'true', explanation: 'Even length: Player 1 can pick the maximum element' },
-      { id: 5, category: 'basic', input: 'nums = [1, 1]', expectedOutput: 'true', explanation: 'Tie score goes to Player 1 by problem rules' },
+      { id: 3, category: 'basic', input: 'nums = [1, 1]', expectedOutput: 'true', explanation: 'Tie score goes to Player 1 by problem rules' },
+      { id: 4, category: 'basic', input: 'nums = [1, 2, 99, 4]', expectedOutput: 'true', explanation: 'Player 1 can choose 1 and then secure 99.' },
+      { id: 5, category: 'basic', input: 'nums = [10, 9, 1]', expectedOutput: 'true', explanation: 'Player 1 can secure the larger sum of one index parity.' },
       // 3 Medium Testcases
       { id: 6, category: 'medium', input: 'nums = [1, 5, 2, 4, 6]', expectedOutput: 'true', explanation: 'Odd length with alternating values' },
       { id: 7, category: 'medium', input: 'nums = [10, 15, 20, 99, 1]', expectedOutput: 'true', explanation: 'Array with one dominant spike element' },
-      { id: 8, category: 'medium', input: 'nums = [3, 9, 1, 2]', expectedOutput: 'true', explanation: 'Strategic balance between early pick and end pick' },
+      { id: 8, category: 'medium', input: 'nums = [3, 9, 1, 2]', expectedOutput: 'false', explanation: 'Player 2 can take 9 after either first move and force a higher score.' },
       // 2 Hard Testcases
-      { id: 9, category: 'hard', input: 'nums = [1, 100, 1000, 50, 20, 80, 90, 12, 44, 99]', expectedOutput: 'false', explanation: 'Large 10-element array where Player 2 forces winning difference' },
+      { id: 9, category: 'hard', input: 'nums = [1, 100, 1000, 50, 20, 80, 90, 12, 44, 99]', expectedOutput: 'true', explanation: 'Player 1 can secure the larger sum of one index parity.' },
       { id: 10, category: 'hard', input: 'nums = [1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]', expectedOutput: 'true', explanation: 'Symmetric maximum value sequence' }
     ]
   },
@@ -197,37 +151,37 @@ Assuming Alice and Bob play optimally, return \`true\` if Alice wins the game, o
     starterCode: {
       python: `class Solution:
     def stoneGame(self, piles: list[int]) -> bool:
-        # Alice can always win since she can choose either all even or odd piles
-        return True
+        # Write your solution here
+        pass
 `,
       javascript: `/**
  * @param {number[]} piles
  * @return {boolean}
  */
 function stoneGame(piles) {
-  // Alice can always pick all odd or all even indexed piles
-  return true;
+  // Write your solution here
 }
 `,
       typescript: `function stoneGame(piles: number[]): boolean {
-  return true;
+  // Write your solution here
 }
 `,
       cpp: `class Solution {
 public:
     bool stoneGame(vector<int>& piles) {
-        return true;
+        // Write your solution here
     }
 };
 `,
       java: `class Solution {
     public boolean stoneGame(int[] piles) {
-        return true;
+        // Write your solution here
     }
 }
 `,
       go: `func stoneGame(piles []int) bool {
-    return true
+    // Write your solution here
+    return false
 }
 `
     },
@@ -278,78 +232,34 @@ Return the maximum safeness factor of all paths leading to cell \`(n - 1, n - 1)
       }
     ],
     starterCode: {
-      python: `from collections import deque
-import heapq
-
-class Solution:
+      python: `class Solution:
     def maximumSafenessFactor(self, grid: list[list[int]]) -> int:
-        n = len(grid)
-        if grid[0][0] == 1 or grid[n - 1][n - 1] == 1:
-            return 0
-        
-        # Multi-source BFS for thief distances
-        dist = [[-1] * n for _ in range(n)]
-        q = deque()
-        for r in range(n):
-            for c in range(n):
-                if grid[r][c] == 1:
-                    q.append((r, c))
-                    dist[r][c] = 0
-        
-        while q:
-            r, c = q.popleft()
-            for dr, dc in [(-1,0), (1,0), (0,-1), (0,1)]:
-                nr, nc = r + dr, c + dc
-                if 0 <= nr < n and 0 <= nc < n and dist[nr][nc] == -1:
-                    dist[nr][nc] = dist[r][c] + 1
-                    q.append((nr, nc))
-                    
-        # Dijkstra for maximum safeness factor
-        pq = [(-dist[0][0], 0, 0)]
-        max_safety = [[-1] * n for _ in range(n)]
-        max_safety[0][0] = dist[0][0]
-        
-        while pq:
-            d, r, c = heapq.heappop(pq)
-            d = -d
-            if r == n - 1 and c == n - 1:
-                return d
-            for dr, dc in [(-1,0), (1,0), (0,-1), (0,1)]:
-                nr, nc = r + dr, c + dc
-                if 0 <= nr < n and 0 <= nc < n:
-                    s = min(d, dist[nr][nc])
-                    if s > max_safety[nr][nc]:
-                        max_safety[nr][nc] = s
-                        heapq.heappush(pq, (-s, nr, nc))
-        return 0
+        # Write your solution here
+        pass
 `,
       javascript: `function maximumSafenessFactor(grid) {
-  // Dijkstra / BFS implementation
-  const n = grid.length;
-  if (grid[0][0] === 1 || grid[n - 1][n - 1] === 1) return 0;
-  return 2; // Returns maximum safeness factor
+  // Write your solution here
 }
 `,
       typescript: `function maximumSafenessFactor(grid: number[][]): number {
-  const n = grid.length;
-  if (grid[0][0] === 1 || grid[n - 1][n - 1] === 1) return 0;
-  return 2;
+  // Write your solution here
 }
 `,
       cpp: `class Solution {
 public:
     int maximumSafenessFactor(vector<vector<int>>& grid) {
-        return 0;
+        // Write your solution here
     }
 };
 `,
       java: `class Solution {
     public int maximumSafenessFactor(List<List<Integer>> grid) {
-        return 0;
+        // Write your solution here
     }
 }
 `,
       go: `func maximumSafenessFactor(grid [][]int) int {
+    // Write your solution here
     return 0
 }
 `
@@ -463,4 +373,4 @@ public:
   };
 }
 
-export { resolveBackendChallengeId, getKnownBackendChallengeId } from '@/services/challengeService';
+export { resolveBackendChallengeId } from '@/services/challengeService';

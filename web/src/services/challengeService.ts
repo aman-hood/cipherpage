@@ -21,14 +21,8 @@ export interface BackendChallenge {
 // In-memory cache of backend challenges
 let cachedChallenges: BackendChallenge[] | null = null;
 let fetchPromise: Promise<BackendChallenge[]> | null = null;
-
-// Fallback hardcoded dictionary for instant synchronous resolution
-const KNOWN_ID_MAP: Record<string, number> = {
-  '486': 1,
-  'predict-the-winner': 1,
-  '1': 2,
-  'two-sum': 2,
-};
+let challengesCachedAt = 0;
+const CHALLENGES_CACHE_TTL_MS = 15_000;
 
 function normalize(str: string): string {
   return str.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -38,7 +32,7 @@ function normalize(str: string): string {
  * Fetches all challenges from the backend API.
  */
 export async function fetchBackendChallenges(token?: string, forceRefresh = false): Promise<BackendChallenge[]> {
-  if (cachedChallenges && !forceRefresh) {
+  if (cachedChallenges !== null && !forceRefresh && Date.now() - challengesCachedAt < CHALLENGES_CACHE_TTL_MS) {
     return cachedChallenges;
   }
 
@@ -61,6 +55,7 @@ export async function fetchBackendChallenges(token?: string, forceRefresh = fals
       }
       const data = await res.json();
       cachedChallenges = data;
+      challengesCachedAt = Date.now();
       return data;
     } catch (err) {
       console.warn('Error fetching backend challenges:', err);
@@ -74,66 +69,46 @@ export async function fetchBackendChallenges(token?: string, forceRefresh = fals
 }
 
 /**
- * Synchronous resolver for instant initial state before network returns.
- */
-export function getKnownBackendChallengeId(problemNumberOrId: string | number, title?: string): number {
-  const strId = String(problemNumberOrId).trim();
-  if (KNOWN_ID_MAP[strId]) return KNOWN_ID_MAP[strId];
-
-  if (title) {
-    const normTitle = normalize(title);
-    if (normTitle.includes('predictthewinner')) return 1;
-    if (normTitle.includes('twosum')) return 2;
-  }
-
-  const num = parseInt(strId, 10);
-  // If already a small integer (1, 2, ... <= 50), it is likely a direct sequence ID
-  if (!isNaN(num) && num > 0 && num <= 50) {
-    return num;
-  }
-
-  // Fallback default: Predict the Winner is Challenge 1
-  return 1;
-}
-
-/**
  * Dynamic asynchronous resolver querying live backend challenges.
  */
 export async function resolveBackendChallengeId(
   problemNumberOrId: string | number,
   title?: string,
   token?: string
-): Promise<number> {
+): Promise<number | null> {
   const challenges = await fetchBackendChallenges(token);
 
   if (challenges && challenges.length > 0) {
     const strId = String(problemNumberOrId).trim();
-    const numId = parseInt(strId, 10);
+    const normalizedTitle = title ? normalize(title) : '';
 
-    // 1. Direct ID match if numeric and matches existing DB ID
-    const exactIdMatch = challenges.find((c) => c.id === numId);
-    if (exactIdMatch && numId <= 50) {
-      return exactIdMatch.id;
-    }
-
-    // 2. Title match
+    // Match user-facing problem identity before an internal numeric database ID.
     if (title) {
-      const normTitle = normalize(title);
       const titleMatch = challenges.find((c) => {
-        const cNorm = normalize(c.title);
-        return cNorm === normTitle || cNorm.includes(normTitle) || normTitle.includes(cNorm);
+        const normalizedChallengeTitle = normalize(c.title);
+        return normalizedChallengeTitle === normalizedTitle ||
+          normalizedTitle.includes(normalizedChallengeTitle);
       });
       if (titleMatch) return titleMatch.id;
     }
 
-    // 3. Slug match
+    // Slugs may include a problem number in addition to the title.
     const slugMatch = challenges.find((c) => {
-      const cSlug = normalize(c.slug);
-      return cSlug === normalize(strId) || (title && cSlug === normalize(title));
+      const normalizedSlug = normalize(c.slug);
+      return normalizedSlug === normalize(strId) ||
+        (normalizedTitle.length > 0 && (
+          normalizedSlug.includes(normalizedTitle) || normalizedTitle.includes(normalizedSlug)
+        ));
     });
     if (slugMatch) return slugMatch.id;
+
+    // Accept a raw internal ID only when no display identity was provided.
+    if (!title) {
+      const numId = Number(strId);
+      const exactIdMatch = challenges.find((c) => c.id === numId);
+      if (exactIdMatch) return exactIdMatch.id;
+    }
   }
 
-  // Fallback to known mapping
-  return getKnownBackendChallengeId(problemNumberOrId, title);
+  return null;
 }

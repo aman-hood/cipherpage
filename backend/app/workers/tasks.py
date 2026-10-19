@@ -36,7 +36,16 @@ def evaluate_submission_task(submission_id: str):
         submission.status = "RUNNING"
         db.commit()
 
-        test_cases = db.query(TestCase).filter(TestCase.challenge_id == challenge.id).order_by(TestCase.order.asc()).all()
+        test_case_query = db.query(TestCase).filter(TestCase.challenge_id == challenge.id)
+        if submission.evaluation_mode == "run":
+            test_case_query = test_case_query.filter(TestCase.is_hidden.is_(False))
+        test_cases = test_case_query.order_by(TestCase.order.asc()).all()
+        if not test_cases:
+            submission.status = "SYSTEM_ERROR"
+            submission.error_message = "This challenge has no test cases configured for evaluation."
+            submission.total_tests = 0
+            db.commit()
+            return {"error": submission.error_message}
         total_tests = len(test_cases)
         tests_passed = 0
         total_execution_time = 0.0
@@ -89,7 +98,7 @@ def evaluate_submission_task(submission_id: str):
         db.commit()
 
         # 4. If submission passed, award XP and progress (GROW-02, GROW-03)
-        if submission.status == "PASSED":
+        if submission.status == "PASSED" and submission.evaluation_mode == "submit":
             stats = progress_repo.get_user_stats(db, user_id=submission.user_id)
             if stats:
                 # Anti-farming check: only award XP if this is the user's first time passing this challenge
@@ -97,6 +106,7 @@ def evaluate_submission_task(submission_id: str):
                     Submission.user_id == submission.user_id,
                     Submission.challenge_id == submission.challenge_id,
                     Submission.status == "PASSED",
+                    Submission.evaluation_mode == "submit",
                     Submission.id != submission.id
                 ).first()
 
