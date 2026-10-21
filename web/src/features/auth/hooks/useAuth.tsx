@@ -13,7 +13,7 @@ import {
 import { onAuthStateChanged, signOut as firebaseSignOut, type User } from 'firebase/auth'
 import { ensureFirebaseSessionPersistence, getFirebaseAuth } from '@/lib/firebase/client'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+const API_BASE_URL =   process.env.NEXT_PUBLIC_API_URL ||   process.env.NEXT_PUBLIC_API_BASE_URL ||   (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '')  if (   typeof window !== 'undefined' &&   window.location.protocol === 'https:' &&   API_BASE_URL.startsWith('http://') ) {   throw new Error('Insecure API URL: HTTPS pages must use an HTTPS backend.') }  if (!API_BASE_URL) {   throw new Error('API URL is not configured. Set NEXT_PUBLIC_API_URL in your deployment environment.') }
 
 export type CipherPageUser = {
   id: number
