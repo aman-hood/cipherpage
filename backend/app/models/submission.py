@@ -16,6 +16,7 @@ class Submission(Base):
     code = Column(Text, nullable=False)
     language = Column(String(50), nullable=False)
     evaluation_mode = Column(String(16), default="submit", nullable=False, server_default="submit")
+    custom_input = Column(Text, nullable=True)
     status = Column(String(50), default="QUEUED", nullable=False, index=True) 
     # Statuses: QUEUED, RUNNING, PASSED, FAILED, COMPILE_ERROR, RUNTIME_ERROR, TIME_LIMIT_EXCEEDED, SYSTEM_ERROR
     score = Column(Float, default=0.0)
@@ -35,7 +36,7 @@ class SubmissionResult(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     submission_id = Column(String(32), ForeignKey("submissions.id", ondelete="CASCADE"), nullable=False, index=True)
-    test_case_id = Column(Integer, ForeignKey("test_cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    test_case_id = Column(Integer, ForeignKey("test_cases.id", ondelete="CASCADE"), nullable=True, index=True)
     passed = Column(Boolean, nullable=False)
     stdout = Column(Text, nullable=True)
     stderr = Column(Text, nullable=True)

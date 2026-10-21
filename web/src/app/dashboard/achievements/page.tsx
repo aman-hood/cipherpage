@@ -37,19 +37,23 @@ import {
 } from '@/services/gamificationService';
 
 export default function AchievementsPage() {
-  const [progress, setProgress] = useState<UserProgressData>(getUserProgress);
+  const { profile, user } = useAuth();
+  const userName = profile?.name || user?.displayName || user?.email?.split('@')[0] || 'Developer';
+  const userId = user?.uid || (profile?.id ? String(profile.id) : '');
+
+  const [progress, setProgress] = useState<UserProgressData>(() => getUserProgress(userId));
   const [selectedBadge, setSelectedBadge] = useState<Badge | null>(null);
   const [selectedCertificate, setSelectedCertificate] = useState<Certificate | null>(null);
   const [badgeFilter, setBadgeFilter] = useState<'all' | 'unlocked' | 'locked'>('all');
   const [copiedCertId, setCopiedCertId] = useState<string | null>(null);
-  const { profile, user } = useAuth();
-  const userName = profile?.name || user?.displayName || user?.email?.split('@')[0] || 'Developer';
 
   useEffect(() => {
     const loadGamificationData = async () => {
-      // 1. Initial local base
-      const initial = getUserProgress();
+      // 1. Initial local base scoped to user
+      const initial = getUserProgress(userId);
       setProgress(initial);
+
+      if (!userId) return;
 
       // Hydrate live stats and certificates using the active Firebase ID token.
       try {
@@ -72,10 +76,16 @@ export default function AchievementsPage() {
                 unlocked: backendMatch.unlocked,
                 unlockedAt: backendMatch.unlocked_at 
                   ? new Date(backendMatch.unlocked_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) 
-                  : ib.unlockedAt,
+                  : undefined,
+                progress: { current: backendMatch.unlocked ? 1 : 0, max: 1 },
               };
             }
-            return ib;
+            return {
+              ...ib,
+              unlocked: false,
+              unlockedAt: undefined,
+              progress: { current: 0, max: ib.progress?.max || 1 },
+            };
           });
 
           // Include any backend badges not yet in local initial bank
@@ -101,18 +111,15 @@ export default function AchievementsPage() {
           });
 
           // Map certificates
-          let mappedCerts = initial.certificates;
-          if (liveCertificates && liveCertificates.length > 0) {
-            mappedCerts = liveCertificates.map(c => ({
-              id: c.id,
-              title: c.title,
-              issuer: c.issuer,
-              issueDate: c.issue_date,
-              verificationCode: c.verification_code,
-              credentialUrl: c.credential_url,
-              skills: c.skills,
-            }));
-          }
+          const mappedCerts = (liveCertificates || []).map(c => ({
+            id: c.id,
+            title: c.title,
+            issuer: c.issuer,
+            issueDate: c.issue_date,
+            verificationCode: c.verification_code,
+            credentialUrl: c.credential_url,
+            skills: c.skills,
+          }));
 
           setProgress(prev => ({
             ...prev,
@@ -135,7 +142,8 @@ export default function AchievementsPage() {
     };
 
     loadGamificationData();
-  }, []);
+  }, [userId]);
+
 
   const levelInfo = calculateLevel(progress.totalXp);
   const currentFloor = levelInfo.currentLevelFloor;
@@ -438,66 +446,77 @@ export default function AchievementsPage() {
           </div>
           <span className="text-xs font-semibold text-emerald-400 bg-emerald-950/40 px-3 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5" />
-            2 Active Credentials
+            {progress.certificates.length} Active Credential{progress.certificates.length === 1 ? '' : 's'}
           </span>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {progress.certificates.map((cert) => (
-            <div 
-              key={cert.id}
-              className="p-6 rounded-3xl bg-gradient-to-br from-zinc-950 to-zinc-900 border border-white/10 shadow-2xl space-y-5 relative overflow-hidden flex flex-col justify-between"
-            >
-              <div className="space-y-3">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400/20 to-cyan-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                    <Award className="w-6 h-6" />
-                  </div>
-                  <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/60 px-2.5 py-1 rounded border border-cyan-500/20">
-                    {cert.verificationCode}
-                  </span>
-                </div>
-
-                <div>
-                  <h4 className="text-lg font-bold text-white tracking-tight">
-                    {cert.title}
-                  </h4>
-                  <p className="text-xs text-zinc-400 mt-0.5">
-                    Issued by <span className="text-zinc-200 font-medium">{cert.issuer}</span> to <span className="text-white font-semibold">{userName}</span> on {cert.issueDate}.
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {cert.skills.map((skill) => (
-                    <span key={skill} className="px-2 py-0.5 rounded text-[11px] bg-zinc-800 text-zinc-300 border border-white/5">
-                      {skill}
+        {progress.certificates.length > 0 ? (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {progress.certificates.map((cert) => (
+              <div 
+                key={cert.id}
+                className="p-6 rounded-3xl bg-gradient-to-br from-zinc-950 to-zinc-900 border border-white/10 shadow-2xl space-y-5 relative overflow-hidden flex flex-col justify-between"
+              >
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400/20 to-cyan-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                      <Award className="w-6 h-6" />
+                    </div>
+                    <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/60 px-2.5 py-1 rounded border border-cyan-500/20">
+                      {cert.verificationCode}
                     </span>
-                  ))}
+                  </div>
+
+                  <div>
+                    <h4 className="text-lg font-bold text-white tracking-tight">
+                      {cert.title}
+                    </h4>
+                    <p className="text-xs text-zinc-400 mt-0.5">
+                      Issued by <span className="text-zinc-200 font-medium">{cert.issuer}</span> to <span className="text-white font-semibold">{userName}</span> on {cert.issueDate}.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {cert.skills.map((skill) => (
+                      <span key={skill} className="px-2 py-0.5 rounded text-[11px] bg-zinc-800 text-zinc-300 border border-white/5">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between gap-3">
+                  <button
+                    onClick={() => setSelectedCertificate(cert)}
+                    className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-zinc-950 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Preview Credential</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleCopyCredential(cert)}
+                    className="px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium border border-white/10 transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {copiedCertId === cert.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedCertId === cert.id ? 'Copied Link' : 'Copy Verification Link'}</span>
+                  </button>
                 </div>
               </div>
-
-              {/* Action Buttons */}
-              <div className="pt-4 border-t border-white/5 flex items-center justify-between gap-3">
-                <button
-                  onClick={() => setSelectedCertificate(cert)}
-                  className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-zinc-950 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  <span>Preview Credential</span>
-                </button>
-
-                <button
-                  onClick={() => handleCopyCredential(cert)}
-                  className="px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium border border-white/10 transition-colors flex items-center gap-1.5 cursor-pointer"
-                >
-                  {copiedCertId === cert.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedCertId === cert.id ? 'Copied Link' : 'Copy Verification Link'}</span>
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="p-8 rounded-2xl bg-zinc-950/40 border border-white/5 text-center space-y-2">
+            <Award className="w-8 h-8 text-zinc-600 mx-auto" />
+            <p className="text-sm font-medium text-zinc-300">No verified credentials earned yet</p>
+            <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+              Complete all lessons in a course track to receive an industry-recognized, cryptographically verifiable certificate under your name.
+            </p>
+          </div>
+        )}
       </div>
+
 
       {/* Certificate Modal Preview */}
       {selectedCertificate && (

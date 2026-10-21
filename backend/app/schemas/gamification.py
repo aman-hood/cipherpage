@@ -28,7 +28,49 @@ class UserStatsDetail(BaseModel):
     easy_solved: int
     medium_solved: int
     hard_solved: int
+    hours_learned: float = 0.0
     badges: List[BadgeDetail] = []
 
     class Config:
         from_attributes = True
+
+class UserActivityDetail(BaseModel):
+    id: int
+    activity_type: str
+    title: str
+    description: Optional[str] = None
+    action_label: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class UserActivityCreate(BaseModel):
+    activity_type: str
+    title: str
+    description: Optional[str] = None
+    action_label: str
+
+class POTDCompletionRequest(BaseModel):
+    video_id: str
+    problem_number: Optional[str] = None
+    title: Optional[str] = None
+    date_key: str
+    completed: bool = True
+
+class POTDCompletionDetail(BaseModel):
+    video_id: str
+    problem_number: Optional[str] = None
+    date_key: str
+    completed: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class UserDashboardSummary(BaseModel):
+    stats: UserStatsDetail
+    recent_activity: List[UserActivityDetail]
+    solved_potds: List[str]
+    hours_learned: float
+

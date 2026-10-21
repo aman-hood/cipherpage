@@ -19,7 +19,8 @@ import {
   History,
   Clock,
   Loader2,
-  Bot
+  Bot,
+  AlertCircle
 } from 'lucide-react';
 import AIMentorDrawer from '@/components/AIMentorDrawer';
 import { getFirebaseIdToken } from '@/lib/firebase/client';
@@ -35,6 +36,8 @@ import {
   getSubmissionHistory, 
   EvaluationResult 
 } from '@/services/submissionService';
+import { useAuth } from '@/features/auth/hooks/useAuth';
+import { recordUserActivity } from '@/services/gamificationService';
 
 interface PracticeWorkspaceProps {
   problemNumber?: string;
@@ -46,11 +49,11 @@ interface PracticeWorkspaceProps {
 type SupportedLanguage = 'python' | 'javascript' | 'typescript' | 'cpp' | 'java' | 'go';
 
 const LANGUAGES: { id: SupportedLanguage; label: string; supported: boolean }[] = [
-  { id: 'python', label: 'Python', supported: true },
-  { id: 'javascript', label: 'JavaScript', supported: false },
+  { id: 'python', label: 'Python 3', supported: true },
+  { id: 'cpp', label: 'C++ 17', supported: true },
+  { id: 'java', label: 'Java 17/21', supported: true },
+  { id: 'javascript', label: 'JavaScript', supported: true },
   { id: 'typescript', label: 'TypeScript', supported: false },
-  { id: 'cpp', label: 'C++', supported: false },
-  { id: 'java', label: 'Java', supported: false },
   { id: 'go', label: 'Go', supported: false },
 ];
 
@@ -65,6 +68,8 @@ function PracticeWorkspaceSession({
   onSolveSuccess,
   className = '',
 }: PracticeWorkspaceProps) {
+  const { user, profile } = useAuth();
+  const userId = user?.uid || (profile?.id ? String(profile.id) : '');
   const problem: ProblemInfo = getProblemDetails(problemNumber, problemTitle);
 
   const [language, setLanguage] = useState<SupportedLanguage>('python');
@@ -76,6 +81,10 @@ function PracticeWorkspaceSession({
   const [submissionStatusText, setSubmissionStatusText] = useState<string>('');
   const [testResults, setTestResults] = useState<TestCase[]>(() => problem.testCases.map((testCase) => ({ ...testCase })));
   const [runSuccess, setRunSuccess] = useState<boolean | null>(null);
+  const [compilationError, setCompilationError] = useState<string | null>(null);
+  const [showCustomInput, setShowCustomInput] = useState<boolean>(false);
+  const [customInput, setCustomInput] = useState<string>('[1, 5, 2]');
+  const [customOutput, setCustomOutput] = useState<{ stdout: string; stderr: string; passed: boolean; time: string } | null>(null);
   const [rightPanelTab, setRightPanelTab] = useState<'testcases' | 'history'>('testcases');
   const [historyList, setHistoryList] = useState<EvaluationResult[]>([]);
   const [lastExecutionTime, setLastExecutionTime] = useState<string | null>(null);
@@ -149,7 +158,7 @@ function PracticeWorkspaceSession({
   };
 
   // Run/Submit code against isolated backend runner
-  const handleRunTests = async (runAll: boolean = true) => {
+  const handleRunTests = async (mode: 'run' | 'submit' | 'custom' = 'submit') => {
     if (challengeId === null) {
       setRunSuccess(false);
       setSubmissionStatusText('This challenge is not available on the evaluation server yet.');
@@ -157,8 +166,11 @@ function PracticeWorkspaceSession({
     }
 
     setIsRunning(true);
-    setRightPanelTab('testcases');
+    if (mode !== 'custom') {
+      setRightPanelTab('testcases');
+    }
     setSubmissionStatusText('QUEUED...');
+    setCompilationError(null);
 
     try {
       const token = await getActiveAuthToken();
@@ -168,7 +180,8 @@ function PracticeWorkspaceSession({
         challenge_id: challengeId,
         code: code,
         language: language,
-        mode: runAll ? 'submit' : 'run',
+        mode: mode,
+        custom_input: mode === 'custom' ? customInput : undefined,
       }, token);
 
       setSubmissionStatusText('DISPATCHED TO ISOLATED RUNNER...');
@@ -187,6 +200,33 @@ function PracticeWorkspaceSession({
       setLastExecutionTime(`${execMs}ms`);
       setLastMemoryUsage(`${finalResult.memory_usage.toFixed(1)}MB`);
 
+      if (mode === 'custom') {
+        const customRes = finalResult.results?.[0];
+        setCustomOutput({
+          stdout: customRes?.stdout || (finalResult.status === 'PASSED' ? 'Executed successfully.' : ''),
+          stderr: customRes?.stderr || finalResult.error_message || '',
+          passed: finalResult.status === 'PASSED',
+          time: `${execMs}ms`
+        });
+        setSubmissionStatusText(`Custom Run: ${finalResult.status}`);
+        return;
+      }
+
+      if (finalResult.status === 'COMPILE_ERROR' || finalResult.status === 'SECURITY_VIOLATION') {
+        setCompilationError(finalResult.error_message || 'Compilation Error');
+        setRunSuccess(false);
+        setSubmissionStatusText(finalResult.status === 'SECURITY_VIOLATION' ? 'Security Policy Violation' : 'Compilation Error');
+        const evaluated = problem.testCases.map((tc) => ({
+          ...tc,
+          actualOutput: `Compilation Error:\n${finalResult.error_message || 'Compilation Failed'}`,
+          isPassed: false,
+          executionTime: '0ms',
+        }));
+        setTestResults(evaluated);
+        setHistoryList(prev => [finalResult, ...prev.filter(h => h.submission_id !== finalResult.submission_id)]);
+        return;
+      }
+
       const totalToRun = finalResult.total_tests;
       const allPassed = finalResult.status === 'PASSED';
 
@@ -199,7 +239,7 @@ function PracticeWorkspaceSession({
         const backendResult = finalResult.results?.find(
           (result) => result.test_case_order === index + 1 || result.test_case_id === tc.id
         );
-        const passed = backendResult?.passed ?? allPassed;
+        const passed = backendResult?.passed ?? (allPassed && totalToRun === problem.testCases.length);
         const actualOut = backendResult?.stdout ?? (passed ? tc.expectedOutput : (finalResult.error_message || 'Wrong Answer / Runtime Error'));
 
         return {
@@ -216,15 +256,25 @@ function PracticeWorkspaceSession({
       // 4. Update history
       setHistoryList(prev => [finalResult, ...prev.filter(h => h.submission_id !== finalResult.submission_id)]);
 
-      if (allPassed && runAll) {
-        try {
-          const saved = localStorage.getItem('cipherpage_solved_potds');
-          const list: string[] = saved ? JSON.parse(saved) : [];
-          if (!list.includes(problem.id)) {
-            list.push(problem.id);
-            localStorage.setItem('cipherpage_solved_potds', JSON.stringify(list));
-          }
-        } catch {}
+      if (allPassed && mode === 'submit') {
+        if (userId) {
+          const storagePrefix = `cipherpage_${userId}`;
+          try {
+            const saved = localStorage.getItem(`${storagePrefix}_solved_potds`);
+            const list: string[] = saved ? JSON.parse(saved) : [];
+            if (!list.includes(problem.id)) {
+              list.push(problem.id);
+              localStorage.setItem(`${storagePrefix}_solved_potds`, JSON.stringify(list));
+            }
+          } catch {}
+
+          void recordUserActivity({
+            activity_type: 'SUBMISSION',
+            title: `Challenge #${problem.problemNumber || problem.id}: ${problem.title}`,
+            description: `Passed all 10 test cases for ${problem.title} in ${language.toUpperCase()}`,
+            action_label: 'Solved',
+          });
+        }
 
         onSolveSuccess?.();
       }
@@ -337,7 +387,7 @@ function PracticeWorkspaceSession({
                 {challengeState === 'loading'
                   ? 'Loading challenge…'
                   : challengeState === 'ready'
-                    ? 'Python 3.11 • server-side evaluator'
+                    ? `${language.toUpperCase()} • Server-side Sandbox Evaluator`
                     : 'Challenge unavailable'}
               </span>
             </div>
@@ -351,6 +401,27 @@ function PracticeWorkspaceSession({
               height="400px"
             />
           </div>
+
+          {showCustomInput && (
+            <div className="mt-3 p-3 rounded-xl bg-zinc-900 border border-cyan-500/30 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-cyan-400 font-mono">Custom Input (Evaluates without affecting 10 judging tests):</span>
+                <button
+                  disabled={isRunning || !customInput.trim()}
+                  onClick={() => handleRunTests('custom')}
+                  className="px-3 py-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-zinc-950 font-bold text-xs cursor-pointer disabled:opacity-50"
+                >
+                  Execute Custom Input
+                </button>
+              </div>
+              <textarea
+                value={customInput}
+                onChange={(e) => setCustomInput(e.target.value)}
+                placeholder="e.g. nums = [1, 5, 2] or [10, 20, 30]"
+                className="w-full h-16 p-2 rounded-lg bg-zinc-950 border border-white/10 text-zinc-200 text-xs font-mono focus:outline-hidden focus:border-cyan-500"
+              />
+            </div>
+          )}
 
           {challengeState === 'unavailable' && (
             <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-200" role="status">
@@ -377,7 +448,21 @@ function PracticeWorkspaceSession({
 
               <button
                 disabled={isRunning || challengeState !== 'ready'}
-                onClick={() => handleRunTests(false)}
+                onClick={() => setShowCustomInput(!showCustomInput)}
+                className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-colors flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
+                  showCustomInput
+                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-white/10'
+                }`}
+                title="Input custom test case data"
+              >
+                <Terminal className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Custom Run</span>
+              </button>
+
+              <button
+                disabled={isRunning || challengeState !== 'ready'}
+                onClick={() => handleRunTests('run')}
                 className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold border border-white/10 transition-colors flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                 title={challengeState === 'ready' ? 'Run the 5 public test cases' : 'The challenge must be published before code can run'}
               >
@@ -387,7 +472,7 @@ function PracticeWorkspaceSession({
 
               <button
                 disabled={isRunning || challengeState !== 'ready'}
-                onClick={() => handleRunTests(true)}
+                onClick={() => handleRunTests('submit')}
                 className="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-cyan-400 hover:from-cyan-400 hover:to-cyan-300 text-zinc-950 text-xs font-bold transition-all shadow-[0_0_20px_-3px_rgba(6,182,212,0.4)] flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                 title={challengeState === 'ready' ? 'Submit against all test cases' : 'The challenge must be published before code can run'}
               >
@@ -451,6 +536,39 @@ function PracticeWorkspaceSession({
 
           {rightPanelTab === 'testcases' ? (
             <>
+              {/* Compilation Error Display */}
+              {compilationError && (
+                <div className="mb-4 p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs font-mono whitespace-pre-wrap">
+                  <div className="flex items-center gap-2 font-bold text-rose-400 mb-1">
+                    <AlertCircle className="w-4 h-4" />
+                    <span>Compilation / Syntax Error:</span>
+                  </div>
+                  <pre className="mt-1 text-[11px] overflow-x-auto text-rose-200">{compilationError}</pre>
+                </div>
+              )}
+
+              {/* Custom Input Output Display */}
+              {customOutput && (
+                <div className="mb-4 p-3 rounded-xl bg-zinc-950 border border-cyan-500/30 space-y-1.5 text-xs font-mono">
+                  <div className="flex items-center justify-between text-cyan-400 font-bold font-sans">
+                    <span>Custom Run Output:</span>
+                    <span className="text-zinc-400 font-mono text-[11px]">{customOutput.time}</span>
+                  </div>
+                  {customOutput.stdout && (
+                    <div>
+                      <span className="text-zinc-400 text-[10px] uppercase font-sans">Stdout:</span>
+                      <pre className="p-2 rounded bg-zinc-900 text-emerald-400 text-xs overflow-x-auto">{customOutput.stdout}</pre>
+                    </div>
+                  )}
+                  {customOutput.stderr && (
+                    <div>
+                      <span className="text-rose-400 text-[10px] uppercase font-sans">Stderr:</span>
+                      <pre className="p-2 rounded bg-rose-950/40 text-rose-300 text-xs overflow-x-auto">{customOutput.stderr}</pre>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Test Category Chips */}
               <div className="space-y-2 mb-4">
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 flex items-center justify-between">

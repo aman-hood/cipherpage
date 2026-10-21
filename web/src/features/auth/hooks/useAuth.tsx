@@ -149,6 +149,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         revokeError = new Error('The server could not revoke the Firebase session.')
       }
     }
+    setUser(null);
+    setProfile(null);
+    setProfileError(null);
     await firebaseSignOut(auth)
     if (revokeError) throw revokeError
   }, [])

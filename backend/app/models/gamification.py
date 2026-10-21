@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, UniqueConstraint, Float, Boolean
 from sqlalchemy.orm import relationship
 from app.database.base import Base
 
@@ -46,6 +46,38 @@ class UserStats(Base):
     easy_solved = Column(Integer, default=0, nullable=False)
     medium_solved = Column(Integer, default=0, nullable=False)
     hard_solved = Column(Integer, default=0, nullable=False)
+    hours_learned = Column(Float, default=0.0, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     user = relationship("User", back_populates="stats")
+
+class UserPOTDCompletion(Base):
+    __tablename__ = "user_potd_completions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    video_id = Column(String(50), nullable=False, index=True)
+    problem_number = Column(String(50), nullable=True)
+    date_key = Column(String(20), nullable=False, index=True)
+    completed = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "video_id", name="uq_user_potd_completion"),
+    )
+
+    user = relationship("User", back_populates="potd_completions")
+
+class UserActivity(Base):
+    __tablename__ = "user_activities"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    activity_type = Column(String(50), nullable=False) # POTD, LECTURE, SUBMISSION, BADGE
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    action_label = Column(String(50), nullable=False) # Solved, Watched, Completed, Earned
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    user = relationship("User", back_populates="activities")
+

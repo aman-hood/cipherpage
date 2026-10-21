@@ -4,7 +4,7 @@ from app.models.challenge import Challenge, TestCase
 from app.models.submission import Submission, SubmissionResult
 from app.models.enrollment import Enrollment
 from app.models.progress import LectureProgress, CourseProgress
-from app.models.gamification import Badge, UserBadge, UserStats
+from app.models.gamification import Badge, UserBadge, UserStats, UserPOTDCompletion, UserActivity
 from app.models.ai import AIUsageRecord, Document, DocumentChunk
 from app.models.identity_mapping import FirebaseIdentityMapping
 
@@ -23,6 +23,8 @@ __all__ = [
     "Badge",
     "UserBadge",
     "UserStats",
+    "UserPOTDCompletion",
+    "UserActivity",
     "AIUsageRecord",
     "Document",
     "DocumentChunk",

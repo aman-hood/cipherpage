@@ -12,18 +12,21 @@ export interface SubmissionPayload {
   challenge_id: number;
   code: string;
   language: string;
-  mode: 'run' | 'submit';
+  mode: 'run' | 'submit' | 'custom';
+  custom_input?: string;
 }
 
 export interface SubmissionResultDetail {
   id: number;
-  test_case_id: number;
+  test_case_id?: number | null;
   test_case_order: number;
   passed: boolean;
   stdout?: string;
   stderr?: string;
   execution_time: number;
   memory_usage: number;
+  status?: string;
+  error_message?: string;
 }
 
 export interface EvaluationResult {

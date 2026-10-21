@@ -11,12 +11,13 @@ class ProgressRepository:
                 user_id=user_id,
                 total_xp=0,
                 level=1,
-                current_streak=1,
-                longest_streak=1,
+                current_streak=0,
+                longest_streak=0,
                 total_solved=0,
                 easy_solved=0,
                 medium_solved=0,
-                hard_solved=0
+                hard_solved=0,
+                hours_learned=0.0
             )
             db.add(stats)
             db.commit()

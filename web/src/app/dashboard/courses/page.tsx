@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import VideoPlayer from '@/components/VideoPlayer';
+import { useAuth } from '@/features/auth/hooks/useAuth';
+import { recordUserActivity } from '@/services/gamificationService';
 import { 
   Play, 
   CheckCircle2, 
@@ -11,11 +13,11 @@ import {
   Clock, 
   Share2, 
   BookMarked, 
-  Search,
-  Plus,
-  Tv,
-  Bookmark,
-  BookOpen
+  Search, 
+  Plus, 
+  Tv, 
+  Bookmark, 
+  BookOpen 
 } from 'lucide-react';
 import CourseRAGAssistant from '@/components/CourseRAGAssistant';
 
@@ -120,6 +122,9 @@ const DEFAULT_PLAYLIST: VideoLesson[] = [
 ];
 
 export default function CoursesPage() {
+  const { profile, user } = useAuth();
+  const userId = user?.uid || (profile?.id ? String(profile.id) : '');
+
   const [playlist, setPlaylist] = useState<VideoLesson[]>(DEFAULT_PLAYLIST);
   const [activeVideo, setActiveVideo] = useState<VideoLesson>(DEFAULT_PLAYLIST[0]);
   const [customUrl, setCustomUrl] = useState('');
@@ -131,43 +136,80 @@ export default function CoursesPage() {
   const [userNotes, setUserNotes] = useState('');
   const [showRAGAssistant, setShowRAGAssistant] = useState(false);
 
-  // Load completed video progress and custom playlist from localStorage
+  // Load completed video progress and custom playlist from user-scoped storage
   useEffect(() => {
+    if (!userId) {
+      setCompletedIds([]);
+      setPlaylist(DEFAULT_PLAYLIST);
+      setActiveVideo(DEFAULT_PLAYLIST[0]);
+      setUserNotes('');
+      return;
+    }
+
+    const storagePrefix = `cipherpage_${userId}`;
     try {
-      const savedCompleted = localStorage.getItem('cipherpage_completed_videos');
+      const savedCompleted = localStorage.getItem(`${storagePrefix}_completed_videos`);
       if (savedCompleted) {
         setCompletedIds(JSON.parse(savedCompleted));
+      } else {
+        setCompletedIds([]);
       }
 
-      const savedPlaylist = localStorage.getItem('cipherpage_custom_playlist');
+      const savedPlaylist = localStorage.getItem(`${storagePrefix}_custom_playlist`);
       if (savedPlaylist) {
         const parsed = JSON.parse(savedPlaylist);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setPlaylist(parsed);
           setActiveVideo(parsed[0]);
+        } else {
+          setPlaylist(DEFAULT_PLAYLIST);
+          setActiveVideo(DEFAULT_PLAYLIST[0]);
         }
+      } else {
+        setPlaylist(DEFAULT_PLAYLIST);
+        setActiveVideo(DEFAULT_PLAYLIST[0]);
       }
 
-      const savedNotes = localStorage.getItem('cipherpage_video_notes');
+      const savedNotes = localStorage.getItem(`${storagePrefix}_video_notes`);
       if (savedNotes) {
         setUserNotes(savedNotes);
+      } else {
+        setUserNotes('');
       }
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [userId]);
 
   const handleToggleComplete = (id: string) => {
-    const updated = completedIds.includes(id)
-      ? completedIds.filter(item => item !== id)
-      : [...completedIds, id];
+    if (!userId) return;
+    const isNowCompleted = !completedIds.includes(id);
+    const updated = isNowCompleted
+      ? [...completedIds, id]
+      : completedIds.filter(item => item !== id);
     setCompletedIds(updated);
-    localStorage.setItem('cipherpage_completed_videos', JSON.stringify(updated));
+
+    const storagePrefix = `cipherpage_${userId}`;
+    try {
+      localStorage.setItem(`${storagePrefix}_completed_videos`, JSON.stringify(updated));
+    } catch {}
+
+    if (isNowCompleted) {
+      const matched = playlist.find(p => p.id === id);
+      if (matched) {
+        void recordUserActivity({
+          activity_type: 'VIDEO_WATCHED',
+          title: matched.title,
+          description: matched.category,
+          action_label: 'Completed',
+        });
+      }
+    }
   };
 
   const handleAddCustomVideo = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customUrl.trim()) return;
+    if (!customUrl.trim() || !userId) return;
 
     const newLesson: VideoLesson = {
       id: Date.now().toString(),
@@ -184,13 +226,22 @@ export default function CoursesPage() {
     setCustomUrl('');
     setCustomTitle('');
     setShowAddForm(false);
-    localStorage.setItem('cipherpage_custom_playlist', JSON.stringify(updatedPlaylist));
+
+    const storagePrefix = `cipherpage_${userId}`;
+    try {
+      localStorage.setItem(`${storagePrefix}_custom_playlist`, JSON.stringify(updatedPlaylist));
+    } catch {}
   };
 
   const handleSaveNotes = (val: string) => {
     setUserNotes(val);
-    localStorage.setItem('cipherpage_video_notes', val);
+    if (!userId) return;
+    const storagePrefix = `cipherpage_${userId}`;
+    try {
+      localStorage.setItem(`${storagePrefix}_video_notes`, val);
+    } catch {}
   };
+
 
   const filteredPlaylist = playlist.filter(v =>
     v.title.toLowerCase().includes(searchQuery.toLowerCase()) ||

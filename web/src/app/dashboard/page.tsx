@@ -31,6 +31,13 @@ import {
   getPOTDDaysSet,
   POTDVideo 
 } from '@/lib/youtubeData';
+import { calculateLevel } from '@/lib/gamificationData';
+import { 
+  fetchUserDashboard, 
+  recordUserActivity, 
+  togglePOTDCompletion, 
+  UserActivityItem 
+} from '@/services/gamificationService';
 
 function YouTubeIcon({ className = "w-4 h-4" }: { className?: string }) {
   return (
@@ -197,37 +204,111 @@ function Calendar({
 export default function Dashboard() {
   const { profile, user } = useAuth();
   const userName = (profile?.name || user?.displayName || user?.email?.split('@')[0] || '').split(' ')[0];
+  const userId = user?.uid || (profile?.id ? String(profile.id) : '');
+
   // Default to August 1, 2026 so user immediately sees their playlist's POTD video on load
   const [calendarDate, setCalendarDate] = useState(new Date(2026, 7, 1));
   const [selectedDay, setSelectedDay] = useState(1);
   const [solvedPotds, setSolvedPotds] = useState<string[]>([]);
   const [showPracticeWorkspace, setShowPracticeWorkspace] = useState(false);
-  // New state for dynamic metrics
   const [streakDays, setStreakDays] = useState<number>(0);
+  const [totalSolved, setTotalSolved] = useState<number>(0);
   const [hoursLearned, setHoursLearned] = useState<number>(0);
-  // Store dates of days with at least one solved problem
-  const [solvedDates, setSolvedDates] = useState<string[]>([]);
+  const [totalXp, setTotalXp] = useState<number>(0);
+  const [recentActivities, setRecentActivities] = useState<UserActivityItem[]>([]);
+  const [unlockedBadges, setUnlockedBadges] = useState<{ id: string | number; name: string; icon: string }[]>([]);
+  const [dashboardLoading, setDashboardLoading] = useState<boolean>(true);
 
-  // Load persisted metrics
+  // Load and synchronize personalized metrics for the authenticated user
   useEffect(() => {
+    if (!userId) {
+      setSolvedPotds([]);
+      setStreakDays(0);
+      setTotalSolved(0);
+      setHoursLearned(0);
+      setTotalXp(0);
+      setRecentActivities([]);
+      setUnlockedBadges([]);
+      setDashboardLoading(false);
+      return;
+    }
+
+    const storagePrefix = `cipherpage_${userId}`;
+
+    // 1. Instant load from user-scoped storage
     try {
-      const savedSolved = localStorage.getItem('cipherpage_solved_potds');
+      const savedSolved = localStorage.getItem(`${storagePrefix}_solved_potds`);
       if (savedSolved) setSolvedPotds(JSON.parse(savedSolved));
-      const savedStreak = localStorage.getItem('cipherpage_current_streak');
-      if (savedStreak) setStreakDays(parseInt(savedStreak, 10));
-      const savedHours = localStorage.getItem('cipherpage_hours_learned');
-      if (savedHours) setHoursLearned(parseFloat(savedHours));
-    } catch (e) {}
-  }, []);
+      else setSolvedPotds([]);
 
-  useEffect(() => {
-    try {
-      const savedSolved = localStorage.getItem('cipherpage_solved_potds');
-      if (savedSolved) {
-        setSolvedPotds(JSON.parse(savedSolved));
-      }
-    } catch (e) {}
-  }, []);
+      const savedStreak = localStorage.getItem(`${storagePrefix}_current_streak`);
+      if (savedStreak) setStreakDays(parseInt(savedStreak, 10) || 0);
+      else setStreakDays(0);
+
+      const savedSolvedCount = localStorage.getItem(`${storagePrefix}_total_solved`);
+      if (savedSolvedCount) setTotalSolved(parseInt(savedSolvedCount, 10) || 0);
+      else setTotalSolved(savedSolved ? JSON.parse(savedSolved).length : 0);
+
+      const savedHours = localStorage.getItem(`${storagePrefix}_hours_learned`);
+      if (savedHours) setHoursLearned(parseFloat(savedHours) || 0);
+      else setHoursLearned(0);
+
+      const savedXp = localStorage.getItem(`${storagePrefix}_total_xp`);
+      if (savedXp) setTotalXp(parseInt(savedXp, 10) || 0);
+      else setTotalXp(0);
+
+      const savedActivity = localStorage.getItem(`${storagePrefix}_recent_activity`);
+      if (savedActivity) setRecentActivities(JSON.parse(savedActivity));
+      else setRecentActivities([]);
+    } catch {}
+
+    // 2. Fetch fresh live dashboard data from PostgreSQL via backend API
+    let isMounted = true;
+    setDashboardLoading(true);
+
+    fetchUserDashboard()
+      .then((dash) => {
+        if (!isMounted) return;
+        const currentStreak = dash.stats.current_streak || 0;
+        const solvedCount = dash.stats.total_solved || 0;
+        const hours = dash.hours_learned || dash.stats.hours_learned || 0;
+        const xp = dash.stats.total_xp || 0;
+        const potdList = dash.solved_potds || [];
+        const activities = dash.recent_activity || [];
+
+        setStreakDays(currentStreak);
+        setTotalSolved(solvedCount);
+        setHoursLearned(hours);
+        setTotalXp(xp);
+        setSolvedPotds(potdList);
+        setRecentActivities(activities);
+
+        const badges = (dash.stats.badges || [])
+          .filter(b => b.unlocked)
+          .map(b => ({ id: b.slug || b.id, name: b.name, icon: b.icon || '🏆' }));
+        setUnlockedBadges(badges);
+
+        // Save fresh values to user-scoped cache
+        try {
+          localStorage.setItem(`${storagePrefix}_solved_potds`, JSON.stringify(potdList));
+          localStorage.setItem(`${storagePrefix}_current_streak`, currentStreak.toString());
+          localStorage.setItem(`${storagePrefix}_total_solved`, solvedCount.toString());
+          localStorage.setItem(`${storagePrefix}_hours_learned`, hours.toString());
+          localStorage.setItem(`${storagePrefix}_total_xp`, xp.toString());
+          localStorage.setItem(`${storagePrefix}_recent_activity`, JSON.stringify(activities));
+        } catch {}
+      })
+      .catch((err) => {
+        console.warn('Dashboard live hydrate failed; utilizing user-scoped cached records:', err);
+      })
+      .finally(() => {
+        if (isMounted) setDashboardLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [userId]);
 
   const currentYear = calendarDate.getFullYear();
   const currentMonth = calendarDate.getMonth();
@@ -268,54 +349,58 @@ export default function Dashboard() {
     setSelectedDay(day);
   };
 
-  const handleToggleSolved = (videoId: string) => {
-    const updated = solvedPotds.includes(videoId)
-      ? solvedPotds.filter(id => id !== videoId)
+  const isCurrentSolved = Boolean(selectedPOTDVideo && solvedPotds.includes(selectedPOTDVideo.videoId));
+
+  const levelInfo = useMemo(() => calculateLevel(totalXp), [totalXp]);
+  const xpPercent = useMemo(() => {
+    const xpInCurrentLevel = totalXp - levelInfo.currentLevelFloor;
+    const xpNeededInCurrentLevel = Math.max(1, levelInfo.nextLevelXp - levelInfo.currentLevelFloor);
+    return Math.min(100, Math.max(0, Math.round((xpInCurrentLevel / xpNeededInCurrentLevel) * 100)));
+  }, [totalXp, levelInfo]);
+
+  const handleToggleSolved = async (videoId: string) => {
+    if (!videoId) return;
+    const isCurrentlySolved = solvedPotds.includes(videoId);
+    const newSolved = isCurrentlySolved
+      ? solvedPotds.filter((id) => id !== videoId)
       : [...solvedPotds, videoId];
-    setSolvedPotds(updated);
-    localStorage.setItem('cipherpage_solved_potds', JSON.stringify(updated));
 
-    // Record today's date as solved if not already present
-    const todayStr = new Date().toISOString().split('T')[0];
-    let newSolvedDates = solvedDates;
-    if (!solvedDates.includes(todayStr)) {
-      newSolvedDates = [...solvedDates, todayStr];
-      setSolvedDates(newSolvedDates);
-      localStorage.setItem('cipherpage_solved_dates', JSON.stringify(newSolvedDates));
+    setSolvedPotds(newSolved);
+    setTotalSolved(newSolved.length);
+
+    const storagePrefix = userId ? `cipherpage_${userId}` : 'cipherpage_guest';
+    try {
+      localStorage.setItem(`${storagePrefix}_solved_potds`, JSON.stringify(newSolved));
+      localStorage.setItem(`${storagePrefix}_total_solved`, newSolved.length.toString());
+    } catch {}
+
+    // Synchronize to backend database
+    const dateKey = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
+    const result = await togglePOTDCompletion({
+      video_id: videoId,
+      problem_number: selectedPOTDVideo?.problemNumber,
+      date_key: dateKey,
+      completed: !isCurrentlySolved,
+    });
+
+    if (result && result.stats) {
+      setStreakDays(result.stats.current_streak || 0);
+      setTotalSolved(result.stats.total_solved || 0);
+      setTotalXp(result.stats.total_xp || 0);
+      setHoursLearned(result.hours_learned || result.stats.hours_learned || 0);
+      if (result.solved_potds) setSolvedPotds(result.solved_potds);
+      if (result.recent_activity) setRecentActivities(result.recent_activity);
+
+      try {
+        localStorage.setItem(`${storagePrefix}_current_streak`, (result.stats.current_streak || 0).toString());
+        localStorage.setItem(`${storagePrefix}_total_solved`, (result.stats.total_solved || 0).toString());
+        localStorage.setItem(`${storagePrefix}_total_xp`, (result.stats.total_xp || 0).toString());
+        localStorage.setItem(`${storagePrefix}_hours_learned`, (result.hours_learned || 0).toString());
+        if (result.solved_potds) localStorage.setItem(`${storagePrefix}_solved_potds`, JSON.stringify(result.solved_potds));
+        if (result.recent_activity) localStorage.setItem(`${storagePrefix}_recent_activity`, JSON.stringify(result.recent_activity));
+      } catch {}
     }
-
-    // Recompute streak based on consecutive solved dates up to today
-    const datesSet = new Set(newSolvedDates);
-    let streak = 0;
-    const today = new Date();
-    for (let i = 0; i < 365; i++) {
-      const dateKey = today.toISOString().split('T')[0];
-      if (datesSet.has(dateKey)) {
-        streak++;
-        today.setDate(today.getDate() - 1);
-      } else {
-        break;
-      }
-    }
-    setStreakDays(streak);
-    localStorage.setItem('cipherpage_current_streak', streak.toString());
-
-    // Increment hours learned by a fixed amount per solved POTD (e.g., 0.5h)
-    const addedHours = 0.5;
-    const totalHours = parseFloat(localStorage.getItem('cipherpage_hours_learned') || '0') + addedHours;
-    setHoursLearned(totalHours);
-    localStorage.setItem('cipherpage_hours_learned', totalHours.toString());
   };
-
-  const handleVideoWatched = (videoId: string) => {
-    // Add hours for video watch (e.g., 0.5h per watch)
-    const addedHours = 0.5;
-    const total = parseFloat(localStorage.getItem('cipherpage_hours_learned') || '0') + addedHours;
-    setHoursLearned(total);
-    localStorage.setItem('cipherpage_hours_learned', total.toString());
-  };
-
-  const isCurrentSolved = selectedPOTDVideo && solvedPotds.includes(selectedPOTDVideo.videoId);
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500">
@@ -566,22 +651,28 @@ export default function Dashboard() {
           <div className="bg-zinc-900/50 border border-white/5 rounded-2xl p-6 shadow-xl">
             <h3 className="font-semibold text-lg mb-6 text-white">Recent Activity</h3>
             <div className="space-y-4">
-              {[
-                { title: 'Leetcode 486 | Predict the Winner', desc: 'POTD August 1, 2026 • Game Theory & Dynamic Programming', time: 'Watched' },
-                { title: 'Leetcode 877 | Stone Game', desc: 'POTD August 2, 2026 • Math & Greedy Strategy', time: 'Solved' },
-                { title: 'Leetcode 1406 | Stone Game III', desc: 'POTD August 3, 2026 • Hard DP Solution', time: 'Completed' }
-              ].map((item, i) => (
-                <div key={i} className="flex items-center gap-4 p-4 rounded-xl bg-zinc-950/50 border border-white/5 hover:bg-white/5 transition-colors cursor-pointer group">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500/20 to-purple-500/20 flex items-center justify-center group-hover:scale-105 transition-transform border border-white/5">
-                    <Terminal className="w-5 h-5 text-cyan-400" />
+              {recentActivities.length > 0 ? (
+                recentActivities.slice(0, 5).map((item) => (
+                  <div key={item.id} className="flex items-center gap-4 p-4 rounded-xl bg-zinc-950/50 border border-white/5 hover:bg-white/5 transition-colors cursor-pointer group">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500/20 to-purple-500/20 flex items-center justify-center group-hover:scale-105 transition-transform border border-white/5">
+                      <Terminal className="w-5 h-5 text-cyan-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h5 className="font-medium text-white truncate">{item.title}</h5>
+                      <p className="text-sm text-zinc-400 truncate">{item.description || (item.created_at ? new Date(item.created_at).toLocaleDateString() : 'Activity recorded')}</p>
+                    </div>
+                    <span className="text-xs font-medium text-cyan-400 bg-cyan-950/50 px-2.5 py-1 rounded-full border border-cyan-500/20 whitespace-nowrap">{item.action_label}</span>
                   </div>
-                  <div className="flex-1">
-                    <h5 className="font-medium text-white">{item.title}</h5>
-                    <p className="text-sm text-zinc-400">{item.desc}</p>
-                  </div>
-                  <span className="text-xs font-medium text-cyan-400 bg-cyan-950/50 px-2.5 py-1 rounded-full border border-cyan-500/20">{item.time}</span>
+                ))
+              ) : (
+                <div className="p-8 rounded-xl bg-zinc-950/40 border border-white/5 text-center space-y-2">
+                  <Terminal className="w-8 h-8 text-zinc-600 mx-auto" />
+                  <p className="text-sm font-medium text-zinc-300">No activity recorded yet</p>
+                  <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+                    Solve a Problem of the Day or watch an interactive video lecture to start building your personalized learning track.
+                  </p>
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </div>
@@ -614,11 +705,14 @@ export default function Dashboard() {
             {/* Level & XP Mini Bar */}
             <div className="p-3.5 rounded-xl bg-zinc-950/70 border border-white/5 space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-white">Level 4 • Algorithm Specialist</span>
-                <span className="text-cyan-400 font-mono font-semibold">1,150 XP</span>
+                <span className="font-bold text-white">Level {levelInfo.level} • {levelInfo.title}</span>
+                <span className="text-cyan-400 font-mono font-semibold">{totalXp.toLocaleString()} XP</span>
               </div>
               <div className="w-full h-1.5 rounded-full bg-zinc-800 overflow-hidden">
-                <div className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-emerald-400 w-[65%]" />
+                <div 
+                  className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-emerald-400 transition-all duration-500" 
+                  style={{ width: `${xpPercent}%` }}
+                />
               </div>
             </div>
 
@@ -627,25 +721,28 @@ export default function Dashboard() {
               <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block mb-2">
                 Recent Badges Unlocked:
               </span>
-              <div className="grid grid-cols-4 gap-2">
-                {[
-                  { icon: '⚔️', title: 'First Blood' },
-                  { icon: '🔥', title: 'Streak 7' },
-                  { icon: '👑', title: 'Minimax' },
-                  { icon: '⚡', title: 'Flawless' }
-                ].map((b, i) => (
-                  <Link
-                    key={i}
-                    href="/dashboard/achievements"
-                    className="p-2 rounded-xl bg-zinc-950/60 border border-white/5 hover:border-cyan-500/30 flex flex-col items-center justify-center text-center transition-all group"
-                    title={b.title}
-                  >
-                    <span className="text-xl group-hover:scale-110 transition-transform">{b.icon}</span>
-                    <span className="text-[9px] text-zinc-400 font-medium mt-1 truncate max-w-[50px]">{b.title}</span>
-                  </Link>
-                ))}
-              </div>
+              {unlockedBadges.length > 0 ? (
+                <div className="grid grid-cols-4 gap-2">
+                  {unlockedBadges.slice(0, 4).map((b, i) => (
+                    <Link
+                      key={i}
+                      href="/dashboard/achievements"
+                      className="p-2 rounded-xl bg-zinc-950/60 border border-white/5 hover:border-cyan-500/30 flex flex-col items-center justify-center text-center transition-all group"
+                      title={b.name}
+                    >
+                      <span className="text-xl group-hover:scale-110 transition-transform">{b.icon}</span>
+                      <span className="text-[9px] text-zinc-400 font-medium mt-1 truncate max-w-[50px]">{b.name}</span>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-3 rounded-xl bg-zinc-950/40 border border-white/5 text-center space-y-1">
+                  <p className="text-xs text-zinc-400 font-medium">No badges unlocked yet</p>
+                  <p className="text-[10px] text-zinc-500">Solve daily POTD challenges to earn badges.</p>
+                </div>
+              )}
             </div>
+
 
             <Link
               href="/dashboard/achievements"

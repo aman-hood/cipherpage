@@ -5,6 +5,7 @@ from app.repositories.progress import progress_repo
 from app.models.progress import LectureProgress
 from app.models.user import User
 from app.models.course import Lecture
+from app.models.gamification import UserActivity
 from app.dependencies.auth import ensure_course_access
 from app.schemas.progress import ProgressUpdate, OverallProgress
 
@@ -54,6 +55,15 @@ class ProgressService:
 
         # Recalculate level: every 100 XP is 1 level
         stats.level = max(1, (stats.total_xp // 100) + 1)
+        if update.completed:
+            course_title = lecture.module.course.title if (lecture.module and lecture.module.course) else "Course"
+            db.add(UserActivity(
+                user_id=user.id,
+                activity_type="LECTURE",
+                title=f"Lecture: {lecture.title}",
+                description=f"Completed lecture in {course_title}",
+                action_label="Completed"
+            ))
         db.commit()
 
         return {"status": "success", "total_xp": stats.total_xp, "level": stats.level}

@@ -14,7 +14,7 @@ from app.models.ai import Document
 def seed_database():
     db: Session = SessionLocal()
     try:
-        print("🌱 Seeding database...")
+        print("[*] Seeding database...")
 
         # 1. Seed Demo User
         demo_user = db.query(User).filter(User.email == "demo@cipherpage.com").first()
@@ -111,14 +111,20 @@ def seed_database():
             db.commit()
             db.refresh(challenge_1)
 
-            # Test Cases
+            # 10 Test Cases (5 public, 5 hidden)
             tc1 = TestCase(challenge_id=challenge_1.id, input_data="[1, 5, 2]", expected_output="false", is_hidden=False, order=1)
             tc2 = TestCase(challenge_id=challenge_1.id, input_data="[1, 5, 233, 7]", expected_output="true", is_hidden=False, order=2)
-            tc3 = TestCase(challenge_id=challenge_1.id, input_data="[1, 1]", expected_output="true", is_hidden=True, order=3)
-            tc4 = TestCase(challenge_id=challenge_1.id, input_data="[1, 2, 99, 4]", expected_output="true", is_hidden=True, order=4)
-            db.add_all([tc1, tc2, tc3, tc4])
+            tc3 = TestCase(challenge_id=challenge_1.id, input_data="[1, 1]", expected_output="true", is_hidden=False, order=3)
+            tc4 = TestCase(challenge_id=challenge_1.id, input_data="[1, 2, 99, 4]", expected_output="true", is_hidden=False, order=4)
+            tc5 = TestCase(challenge_id=challenge_1.id, input_data="[10, 9, 1]", expected_output="true", is_hidden=False, order=5)
+            tc6 = TestCase(challenge_id=challenge_1.id, input_data="[1, 5, 2, 4, 6]", expected_output="true", is_hidden=True, order=6)
+            tc7 = TestCase(challenge_id=challenge_1.id, input_data="[10, 15, 20, 99, 1]", expected_output="false", is_hidden=True, order=7)
+            tc8 = TestCase(challenge_id=challenge_1.id, input_data="[3, 9, 1, 2]", expected_output="true", is_hidden=True, order=8)
+            tc9 = TestCase(challenge_id=challenge_1.id, input_data="[1, 100, 1000, 50, 20, 80, 90, 12, 44, 99]", expected_output="true", is_hidden=True, order=9)
+            tc10 = TestCase(challenge_id=challenge_1.id, input_data="[1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]", expected_output="true", is_hidden=True, order=10)
+            db.add_all([tc1, tc2, tc3, tc4, tc5, tc6, tc7, tc8, tc9, tc10])
             db.commit()
-            print("  Created challenge: Predict the Winner (with test cases)")
+            print("  Created challenge: Predict the Winner (with 10 test cases)")
 
         challenge_2 = db.query(Challenge).filter(Challenge.slug == "two-sum").first()
         if not challenge_2:
@@ -145,10 +151,17 @@ def seed_database():
 
             tc2_1 = TestCase(challenge_id=challenge_2.id, input_data="nums = [2,7,11,15], target = 9", expected_output="[0,1]", is_hidden=False, order=1)
             tc2_2 = TestCase(challenge_id=challenge_2.id, input_data="nums = [3,2,4], target = 6", expected_output="[1,2]", is_hidden=False, order=2)
-            tc2_3 = TestCase(challenge_id=challenge_2.id, input_data="nums = [3,3], target = 6", expected_output="[0,1]", is_hidden=True, order=3)
-            db.add_all([tc2_1, tc2_2, tc2_3])
+            tc2_3 = TestCase(challenge_id=challenge_2.id, input_data="nums = [3,3], target = 6", expected_output="[0,1]", is_hidden=False, order=3)
+            tc2_4 = TestCase(challenge_id=challenge_2.id, input_data="nums = [-1,-2,-3,-4,-5], target = -8", expected_output="[2,4]", is_hidden=False, order=4)
+            tc2_5 = TestCase(challenge_id=challenge_2.id, input_data="nums = [0,4,3,0], target = 0", expected_output="[0,3]", is_hidden=False, order=5)
+            tc2_6 = TestCase(challenge_id=challenge_2.id, input_data="nums = [-3,4,3,90], target = 0", expected_output="[0,2]", is_hidden=True, order=6)
+            tc2_7 = TestCase(challenge_id=challenge_2.id, input_data="nums = [1,5,8,12,14], target = 20", expected_output="[2,3]", is_hidden=True, order=7)
+            tc2_8 = TestCase(challenge_id=challenge_2.id, input_data="nums = [2,5,5,11], target = 10", expected_output="[1,2]", is_hidden=True, order=8)
+            tc2_9 = TestCase(challenge_id=challenge_2.id, input_data="nums = [1000000, 500, 2000000, 1000000], target = 2000000", expected_output="[0,3]", is_hidden=True, order=9)
+            tc2_10 = TestCase(challenge_id=challenge_2.id, input_data="nums = [1,2,3,4,5,6,7,8,9,10], target = 19", expected_output="[8,9]", is_hidden=True, order=10)
+            db.add_all([tc2_1, tc2_2, tc2_3, tc2_4, tc2_5, tc2_6, tc2_7, tc2_8, tc2_9, tc2_10])
             db.commit()
-            print("  Created challenge: Two Sum (with test cases)")
+            print("  Created challenge: Two Sum (with 10 test cases)")
 
         # 5. Seed Badges
         badges_data = [
@@ -194,7 +207,7 @@ def seed_database():
             )
             print("  Seeded course documentation for RAG Learning Assistant")
 
-        print("✨ Database seeding complete.")
+        print("[+] Database seeding complete.")
     finally:
         db.close()
 

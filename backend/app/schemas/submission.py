@@ -5,18 +5,21 @@ from pydantic import BaseModel, Field
 class CodeSubmission(BaseModel):
     challenge_id: int
     code: str = Field(..., max_length=65536, description="Source code")
-    language: Literal["python"] = Field(..., description="Python is the only configured evaluation runtime")
-    mode: Literal["run", "submit"] = "submit"
+    language: str = Field(default="python", max_length=50, description="Programming language: python, cpp, java, javascript")
+    mode: Literal["run", "submit", "custom"] = "submit"
+    custom_input: Optional[str] = None
 
 class SubmissionResultDetail(BaseModel):
     id: int
-    test_case_id: int
+    test_case_id: Optional[int] = None
     test_case_order: int
     passed: bool
     stdout: Optional[str] = None
     stderr: Optional[str] = None
     execution_time: float
     memory_usage: float
+    status: Optional[str] = None
+    error_message: Optional[str] = None
 
     class Config:
         from_attributes = True

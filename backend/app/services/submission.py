@@ -1,3 +1,4 @@
+import os
 from typing import List, Optional
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -17,8 +18,10 @@ class SubmissionService:
         challenge_test_cases = sorted(challenge.test_cases or [], key=lambda test_case: test_case.order)
         if submission_in.mode == "run":
             challenge_test_cases = [test_case for test_case in challenge_test_cases if not test_case.is_hidden]
+        elif submission_in.mode == "custom":
+            challenge_test_cases = []
 
-        total_tests = len(challenge_test_cases)
+        total_tests = 1 if submission_in.mode == "custom" else len(challenge_test_cases)
         if total_tests == 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -31,6 +34,7 @@ class SubmissionService:
             code=submission_in.code,
             language=submission_in.language,
             evaluation_mode=submission_in.mode,
+            custom_input=submission_in.custom_input,
             status="QUEUED",
             score=0.0,
             tests_passed=0,
@@ -42,18 +46,18 @@ class SubmissionService:
         db.commit()
         db.refresh(submission)
 
-        # Dispatch asynchronous evaluation to Celery worker (CODE-04, API-04)
-        try:
-            from app.workers.tasks import evaluate_submission_task
-            evaluate_submission_task.delay(submission.id)
-        except Exception as e:
-            # If celery broker is unavailable, run synchronously as graceful fallback
+        # Dispatch evaluation: attempt fast async celery, fallback to sync execution
+        if os.environ.get("CIPHERPAGE_TESTING") != "1":
             try:
                 from app.workers.tasks import evaluate_submission_task
-                evaluate_submission_task(submission.id)
-                db.refresh(submission)
+                evaluate_submission_task.apply_async(args=[submission.id])
             except Exception:
-                pass
+                try:
+                    from app.workers.tasks import evaluate_submission_task
+                    evaluate_submission_task(submission.id)
+                    db.refresh(submission)
+                except Exception:
+                    pass
 
         return submission
 
@@ -72,12 +76,13 @@ class SubmissionService:
             SubmissionResultDetail(
                 id=r.id,
                 test_case_id=r.test_case_id,
-                test_case_order=r.test_case.order,
+                test_case_order=r.test_case.order if r.test_case else 1,
                 passed=r.passed,
                 stdout=r.stdout,
                 stderr=r.stderr,
                 execution_time=r.execution_time,
-                memory_usage=r.memory_usage
+                memory_usage=r.memory_usage,
+                status="PASSED" if r.passed else "FAILED"
             )
             for r in submission.results
         ]

@@ -73,3 +73,7 @@ CipherPage relies on environment variables to configure its various services sec
 - Production web images need NEXT_PUBLIC_API_URL and the public NEXT_PUBLIC_FIREBASE_* values at build time. The production Compose file intentionally fails configuration when required Firebase web values are missing.
 
 See docs/migrations/neon_firebase_migration.md for identity mapping, owner-provided variables, migration order, and remaining deployment prerequisites.
+
+CMD to run backend -> .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload 
+
+CMD to run web     -> npm run dev
